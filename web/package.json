@@ -7,10 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:tracking": "node --test tests/upload-tracking.test.mjs",
     "postinstall": "node scripts/setup-assets.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
+    "mediabunny": "^1.60.0",
     "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8"

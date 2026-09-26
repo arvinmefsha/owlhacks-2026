@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { UploadCapture } from "@/components/UploadCapture";
 import { DiverPicker, useSelectedDiver } from "@/components/DiverPicker";
 import { api, type Calibration, type DiveSetup, type Point, type PoseFrame } from "@/lib/api";
 import { detectPose, estimateFps, getPoseLandmarker, renderOverlay } from "@/lib/pose";
@@ -356,96 +357,6 @@ function LiveCapture({ calibration, tapMode, onTap, onDone, disabled }: CaptureP
       >
         {isRecording ? "Stop and analyse" : "Start recording"}
       </button>
-    </div>
-  );
-}
-
-function UploadCapture({ calibration, tapMode, onTap, onDone, disabled }: CaptureProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [aspect, setAspect] = useState("16 / 9");
-  const [progress, setProgress] = useState<number | null>(null);
-  const [status, setStatus] = useState("");
-  const calibrationRef = useRef(calibration);
-  const lastPoseRef = useRef<number[] | null>(null);
-  useCalibrationRedraw(videoRef, canvasRef, calibrationRef, lastPoseRef, calibration);
-
-  function choose(event: React.ChangeEvent<HTMLInputElement>) {
-    const chosen = event.target.files?.[0];
-    const video = videoRef.current!;
-    if (!chosen) return;
-    if (video.src) URL.revokeObjectURL(video.src);
-    video.src = URL.createObjectURL(chosen);
-    lastPoseRef.current = null;
-    setFile(chosen);
-    setProgress(null);
-  }
-
-  function loaded() {
-    const video = videoRef.current!;
-    setAspect(`${video.videoWidth} / ${video.videoHeight}`);
-    renderOverlay(canvasRef.current!, video, calibrationRef.current, null);
-  }
-
-  async function analyse() {
-    const video = videoRef.current!;
-    if (!file) return;
-    setStatus("Loading the accurate pose model…");
-    const landmarker = await getPoseLandmarker("heavy");
-    video.pause();
-    if (video.currentTime !== 0) {
-      video.currentTime = 0;
-      await new Promise((resolve) => video.addEventListener("seeked", resolve, { once: true }));
-    }
-    setStatus("Tracking the diver…");
-    const frames: PoseFrame[] = [];
-    // Half speed gives the heavier model time to process more of the frames.
-    video.playbackRate = 0.5;
-    await new Promise<void>((resolve) => {
-      let lastTime = -1;
-      const step = (_now: number, meta: VideoFrameCallbackMetadata) => {
-        if (meta.mediaTime > lastTime) {
-          lastTime = meta.mediaTime;
-          const lm = detectPose(landmarker, video);
-          frames.push({ t: meta.mediaTime, lm });
-          lastPoseRef.current = lm && lm.flat();
-          renderOverlay(canvasRef.current!, video, calibrationRef.current, lastPoseRef.current);
-          setProgress(meta.mediaTime / video.duration);
-        }
-        if (!video.ended) video.requestVideoFrameCallback(step);
-      };
-      video.requestVideoFrameCallback(step);
-      video.addEventListener("ended", () => resolve(), { once: true });
-      void video.play();
-    });
-    video.playbackRate = 1;
-    setStatus("");
-    setProgress(1);
-    onDone({ frames, video: file, filename: file.name, width: video.videoWidth, height: video.videoHeight, source: "upload" });
-  }
-
-  const busy = Boolean(status) || disabled;
-  return (
-    <div className="space-y-3">
-      <input type="file" accept="video/mp4,video/webm,video/quicktime" onChange={choose} disabled={busy} className="text-sm" />
-      <div className={file ? "" : "hidden"}>
-        <Stage videoRef={videoRef} canvasRef={canvasRef} aspect={aspect} tapMode={tapMode} onTap={onTap} onLoaded={loaded}>
-          {progress !== null && progress < 1 && (
-            <div className="absolute inset-x-0 bottom-0 h-1 bg-black/40">
-              <div className="h-full bg-cyan-400" style={{ width: `${progress * 100}%` }} />
-            </div>
-          )}
-        </Stage>
-      </div>
-      {file && (
-        <div className="flex items-center gap-3">
-          <button onClick={analyse} disabled={busy} className="rounded-md bg-red-600 px-4 py-2 font-medium text-white hover:bg-red-700 disabled:opacity-50">
-            Analyse video
-          </button>
-          {status && <span className="text-sm text-slate-600">{status}</span>}
-        </div>
-      )}
     </div>
   );
 }

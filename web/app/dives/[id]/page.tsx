@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { use, useEffect, useRef, useState } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 
+import { UploadVideoPlayer } from "@/components/UploadVideoPlayer";
 import { LineChart } from "@/components/LineChart";
 import { api, describeDive, type Dive, type Metric, type Phase, type VisionReview, type Workout } from "@/lib/api";
 import { drawPose, renderOverlay } from "@/lib/pose";
@@ -261,6 +262,18 @@ function MetricTable({ phase, metrics, onSeek }: { phase: Phase; metrics: Metric
 }
 
 function DiveVideo({ dive, videoRef }: { dive: Dive; videoRef: React.RefObject<HTMLVideoElement | null> }) {
+  return dive.source === "upload" ? <UploadedDiveVideo dive={dive} videoRef={videoRef} /> : <LiveDiveVideo dive={dive} videoRef={videoRef} />;
+}
+
+function UploadedDiveVideo({ dive, videoRef }: { dive: Dive; videoRef: React.RefObject<HTMLVideoElement | null> }) {
+  const frames = useMemo(() => dive.frames.t.map((t, index) => {
+    const flat = dive.frames.lm[index];
+    return { t, lm: flat ? Array.from({ length: 33 }, (_, i) => flat.slice(i * 4, i * 4 + 4)) : null };
+  }), [dive.frames]);
+  return <UploadVideoPlayer src={`/api/dives/${dive.id}/video`} frames={frames} calibration={dive.calibration} videoRef={videoRef} />;
+}
+
+function LiveDiveVideo({ dive, videoRef }: { dive: Dive; videoRef: React.RefObject<HTMLVideoElement | null> }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
