@@ -1,0 +1,5 @@
+streamlit>=1.36
+opencv-python-headless>=4.9
+mediapipe==0.10.32
+numpy>=1.26
+streamlit-image-coordinates>=0.1.6
