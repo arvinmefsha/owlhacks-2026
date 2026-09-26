@@ -1,0 +1,218 @@
+[
+  {
+    "id": "box_jumps",
+    "name": "Box jumps",
+    "targets": ["low_height", "takeoff_knees_bent", "takeoff_hips_closed"],
+    "sets": 4,
+    "reps": "6",
+    "equipment": "Plyo box, knee height",
+    "description": "Swing the arms and jump onto the box, reaching full hip and knee extension before landing softly. Step down between reps."
+  },
+  {
+    "id": "squat_jumps",
+    "name": "Squat jumps with arm swing",
+    "targets": ["low_height", "takeoff_knees_bent", "takeoff_arms_low"],
+    "sets": 3,
+    "reps": "8",
+    "equipment": "None",
+    "description": "Sink to a quarter squat with arms back, then drive the arms up past the ears as you jump, finishing tall with pointed toes."
+  },
+  {
+    "id": "calf_raises",
+    "name": "Single-leg calf raises",
+    "targets": ["low_height", "flexed_feet"],
+    "sets": 3,
+    "reps": "12 each leg",
+    "equipment": "Step",
+    "description": "From the edge of a step, lower the heel below the step then rise as high as possible onto the ball of the foot. Slow down, fast up."
+  },
+  {
+    "id": "glute_bridges",
+    "name": "Single-leg glute bridges",
+    "targets": ["takeoff_hips_closed", "low_height"],
+    "sets": 3,
+    "reps": "10 each leg",
+    "equipment": "Mat",
+    "description": "Lying on your back with one foot planted, drive the hips up until knee, hip and shoulder form a straight line. Squeeze for two seconds at the top."
+  },
+  {
+    "id": "hurdle_drill",
+    "name": "Dryland hurdle to takeoff",
+    "targets": ["low_height", "takeoff_lean", "takeoff_arms_low", "too_far_from_board"],
+    "sets": 3,
+    "reps": "5",
+    "equipment": "Line on the floor or a low mat",
+    "description": "Take two steps, hurdle to a two-foot landing on a line with arms circling up, and jump straight up without drifting forward. Land where you took off."
+  },
+  {
+    "id": "arm_swing_timing",
+    "name": "Arm swing timing jumps",
+    "targets": ["takeoff_arms_low", "takeoff_lean", "low_height"],
+    "sets": 3,
+    "reps": "6",
+    "equipment": "None",
+    "description": "Stand tall, circle the arms down and back up, and time the jump so the arms reach overhead exactly as the feet leave the floor."
+  },
+  {
+    "id": "target_line_jumps",
+    "name": "Standing jumps to a target line",
+    "targets": ["too_close_to_board", "too_far_from_board", "board_clearance", "takeoff_lean"],
+    "sets": 3,
+    "reps": "6",
+    "equipment": "Tape line on the floor",
+    "description": "Place a line about 60 cm in front of your toes. Jump up and slightly forward to land on it, keeping the chest up. Adjust the line until the height and distance feel right."
+  },
+  {
+    "id": "v_ups",
+    "name": "V-ups",
+    "targets": ["loose_position"],
+    "sets": 3,
+    "reps": "12",
+    "equipment": "Mat",
+    "description": "From lying flat with arms overhead, lift straight legs and chest together to touch the toes at the top, then lower with control."
+  },
+  {
+    "id": "hanging_knee_raises",
+    "name": "Hanging knee raises",
+    "targets": ["loose_position"],
+    "sets": 3,
+    "reps": "10",
+    "equipment": "Pull-up bar",
+    "description": "Hang from a bar and pull the knees up to the chest as tight as you can, pausing at the top as if grabbing the shins in a tuck."
+  },
+  {
+    "id": "tuck_snaps",
+    "name": "Tuck snaps",
+    "targets": ["loose_position", "under_rotation"],
+    "sets": 3,
+    "reps": "10",
+    "equipment": "Mat",
+    "description": "Lying on your back, snap from a straight hollow position into a tight tuck, grabbing the shins with heels to the seat, then extend back out. Make the snap fast."
+  },
+  {
+    "id": "pike_compression",
+    "name": "Seated pike compression lifts",
+    "targets": ["loose_position", "bent_knees"],
+    "sets": 3,
+    "reps": "10",
+    "equipment": "Mat",
+    "description": "Sit in a pike with straight legs and hands beside the knees. Lift both heels off the floor by pulling the legs toward the chest, keeping the knees locked."
+  },
+  {
+    "id": "seated_pike_stretch",
+    "name": "Seated pike stretch",
+    "targets": ["loose_position", "bent_knees"],
+    "sets": 3,
+    "reps": "30 s hold",
+    "equipment": "Mat",
+    "description": "Sit with legs together and straight, toes pointed, and fold forward from the hips with a flat back. Keep the knees pressed down."
+  },
+  {
+    "id": "straight_leg_raises",
+    "name": "Straight-leg raises",
+    "targets": ["bent_knees", "loose_position"],
+    "sets": 3,
+    "reps": "12",
+    "equipment": "Mat",
+    "description": "Lying on your back, raise locked, pointed legs to vertical and lower slowly without the lower back arching."
+  },
+  {
+    "id": "hollow_hold",
+    "name": "Hollow body hold",
+    "targets": ["entry_body_line", "body_not_straight", "legs_apart"],
+    "sets": 3,
+    "reps": "30 s hold",
+    "equipment": "Mat",
+    "description": "Lie on your back, press the lower back into the floor, and lift arms, shoulders and straight legs a few centimetres. Keep the feet squeezed together."
+  },
+  {
+    "id": "arch_hold",
+    "name": "Superman arch hold",
+    "targets": ["entry_body_line", "body_not_straight"],
+    "sets": 3,
+    "reps": "20 s hold",
+    "equipment": "Mat",
+    "description": "Lie face down and lift arms and legs together with glutes squeezed, keeping the arms by the ears and legs straight."
+  },
+  {
+    "id": "front_plank",
+    "name": "Front plank with posterior tilt",
+    "targets": ["entry_body_line", "body_not_straight", "takeoff_hips_closed"],
+    "sets": 3,
+    "reps": "40 s hold",
+    "equipment": "Mat",
+    "description": "Hold a plank on the forearms while tucking the pelvis under and squeezing the glutes, so the body is one straight line from head to heels."
+  },
+  {
+    "id": "wall_handstand",
+    "name": "Wall handstand hold",
+    "targets": ["entry_angle", "entry_body_line", "entry_arms", "under_rotation", "over_rotation"],
+    "sets": 4,
+    "reps": "20 s hold",
+    "equipment": "Wall, with a spotter if new to handstands",
+    "description": "Chest to the wall, hands shoulder width, arms locked by the ears and toes pointed. Feel what a truly vertical line is: this is the shape you want at entry."
+  },
+  {
+    "id": "streamline_wall_sit",
+    "name": "Streamline wall sit",
+    "targets": ["entry_arms", "entry_body_line"],
+    "sets": 3,
+    "reps": "30 s hold",
+    "equipment": "Wall",
+    "description": "In a wall sit, press the back of the hands and arms up the wall in a tight streamline, squeezing the head between the arms."
+  },
+  {
+    "id": "flat_hand_grab",
+    "name": "Flat-hand grab presses",
+    "targets": ["entry_arms", "entry_angle"],
+    "sets": 3,
+    "reps": "10",
+    "equipment": "Broomstick or light plate",
+    "description": "Hold the stick overhead with the flat-hand grab (one palm over the back of the other hand) and press to full lockout, ears squeezed between the arms. Hold two seconds each rep."
+  },
+  {
+    "id": "adductor_squeeze",
+    "name": "Ball squeeze holds",
+    "targets": ["legs_apart"],
+    "sets": 3,
+    "reps": "20 s hold",
+    "equipment": "Soft ball or rolled towel",
+    "description": "Lying on your back with straight legs raised, squeeze a ball between the ankles as hard as you can while keeping the toes pointed."
+  },
+  {
+    "id": "band_toe_point",
+    "name": "Resistance-band toe point",
+    "targets": ["flexed_feet"],
+    "sets": 3,
+    "reps": "15 each foot",
+    "equipment": "Resistance band",
+    "description": "Sitting with the leg straight, loop a band around the ball of the foot and point the toes fully against it, holding the end position for a second."
+  },
+  {
+    "id": "kneeling_foot_stretch",
+    "name": "Kneeling foot stretch",
+    "targets": ["flexed_feet"],
+    "sets": 3,
+    "reps": "30 s hold",
+    "equipment": "Mat",
+    "description": "Kneel and sit back on the heels with the tops of the feet flat on the mat, then gently lift the knees to deepen the stretch across the top of the ankle."
+  },
+  {
+    "id": "dryland_somersaults",
+    "name": "Dryland somersaults to a straight finish",
+    "targets": ["under_rotation", "over_rotation", "loose_position"],
+    "sets": 3,
+    "reps": "5",
+    "equipment": "Trampoline or crash mat, with a coach",
+    "description": "Practise the somersault in the dive's position and open to a straight line on cue. Only do this on proper equipment with a coach spotting."
+  },
+  {
+    "id": "spotting_drill",
+    "name": "Line-up spotting drill",
+    "targets": ["under_rotation", "over_rotation", "entry_angle"],
+    "sets": 3,
+    "reps": "5",
+    "equipment": "Crash mat, with a coach",
+    "description": "From a standing fall or a low forward roll on the mat, pick a fixed spot and extend into a straight line exactly when you see it, to train the timing of the come-out."
+  }
+]

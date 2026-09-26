@@ -1,0 +1,35 @@
+# Secrets: real env files are never committed, only the .env.example templates
+.env
+.env.*
+*.local
+!.env.example
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+npm-debug.log*
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# OS and editors
+.DS_Store
+.idea/
+
+# Dive footage can show real people, so recordings stay on the machine that made them
+recordings/
+api/uploads/
+samples/**/*.mp4
+samples/**/*.mov
+samples/**/*.webm
+
+# Generated at npm install time (model weights and MediaPipe wasm copied from node_modules)
+web/public/models/
+web/public/mediapipe/
