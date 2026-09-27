@@ -80,21 +80,6 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
         </p>
       </header>
 
-      {legacy && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-          <p className="font-semibold">This saved dive uses retired analysis.</p>
-          <p className="mt-1">Current uploads use evidence-based coaching observations instead of numerical scores.</p>
-        </div>
-      )}
-
-      {!legacy && analysis.warnings.length > 0 && (
-        <ul className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          {analysis.warnings.map((w) => (
-            <li key={w}>{w}</li>
-          ))}
-        </ul>
-      )}
-
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <section className="space-y-4">
           {dive.has_video ? (
@@ -212,8 +197,11 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
 
       {macro && dive.has_video && <VisionReviewPanel dive={dive} videoRef={videoRef} />}
 
-      <div className="flex gap-4 border-t border-slate-200 pt-4 text-sm dark:border-slate-800">
-        <Link href="/record" className="text-sky-600 hover:underline">
+      <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4 text-sm dark:border-slate-800">
+        <Link href="/upload" className="min-h-11 rounded-lg bg-sky-700 px-4 py-2 font-semibold text-white hover:bg-sky-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600">
+          Upload another dive
+        </Link>
+        <Link href="/record" className="min-h-11 rounded-lg border border-slate-300 px-4 py-2 font-semibold hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:border-slate-700 dark:hover:bg-slate-800">
           Record another dive
         </Link>
         <Link href="/progress" className="text-sky-600 hover:underline">
