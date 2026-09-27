@@ -16,10 +16,12 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
 }) {
   const localRef = useRef<HTMLVideoElement>(null);
   const videoRef = externalRef ?? localRef;
+  const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [overlay, setOverlay] = useState(true);
   const [aspect, setAspect] = useState("16 / 9");
@@ -51,6 +53,12 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
     return synchronizeVideo(video, draw, setTime);
   }, [src, calibration, frames, times, overlay, marker, videoRef]);
 
+  useEffect(() => {
+    const update = () => setFullscreen(document.fullscreenElement === stageRef.current);
+    document.addEventListener("fullscreenchange", update);
+    return () => document.removeEventListener("fullscreenchange", update);
+  }, []);
+
   function seek(value: number) {
     const video = videoRef.current;
     if (!video || !duration) return;
@@ -73,6 +81,17 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
     if (!video) return;
     try { if (video.paused) await video.play(); else video.pause(); }
     catch { setError("Playback could not start. Try another video format."); }
+  }
+  async function toggleFullscreen() {
+    const stage = stageRef.current;
+    if (!stage) return;
+    setError("");
+    try {
+      if (document.fullscreenElement === stage) await document.exitFullscreen();
+      else await stage.requestFullscreen();
+    } catch {
+      setError("Fullscreen playback is not available in this browser.");
+    }
   }
   async function download(mode: ExportMode) {
     const video = videoRef.current;
@@ -101,7 +120,7 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
   const exporting = exportMode !== null;
   return (
     <section className="overflow-hidden rounded-xl border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-950" aria-label="Dive video review">
-      <div className="relative bg-black" style={{ aspectRatio: aspect }}>
+      <div ref={stageRef} className="video-review-stage group relative bg-black" style={{ aspectRatio: aspect }}>
         <video ref={videoRef} src={src} className="pointer-events-none absolute inset-0 h-full w-full opacity-0" aria-hidden="true" playsInline muted preload="auto"
           onLoadedMetadata={(e) => {
             const video = e.currentTarget;
@@ -120,6 +139,23 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
           onError={() => setError("This video could not be opened. Try an H.264 MP4 file.")}
         />
         <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true" />
+        <button type="button" className="absolute left-3 top-1/2 z-10 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-slate-700/55 text-2xl leading-none text-white shadow-lg backdrop-blur transition hover:bg-slate-600/75 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:opacity-30"
+          disabled={!duration} onClick={() => step(-1)} aria-label="Previous tracked frame">‹</button>
+        <button type="button" className="absolute right-3 top-1/2 z-10 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-slate-700/55 text-2xl leading-none text-white shadow-lg backdrop-blur transition hover:bg-slate-600/75 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:opacity-30"
+          disabled={!duration} onClick={() => step(1)} aria-label="Next tracked frame">›</button>
+        <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-slate-950/55 px-2 py-2 text-white shadow-lg backdrop-blur transition group-hover:bg-slate-950/70">
+          <button type="button" className="min-h-9 rounded-full px-4 text-sm font-semibold hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:opacity-40"
+            disabled={!duration} onClick={() => void toggle()}>{playing ? "Pause" : "Play"}</button>
+        </div>
+        <button type="button" className="absolute left-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-slate-700/55 text-white shadow-lg backdrop-blur hover:bg-slate-600/75 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 disabled:opacity-40"
+          disabled={!duration} onClick={() => void toggleFullscreen()} aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
+          <span aria-hidden="true" className="relative h-4 w-4">
+            <span className="absolute left-0 top-0 h-1.5 w-1.5 border-l-2 border-t-2 border-current" />
+            <span className="absolute right-0 top-0 h-1.5 w-1.5 border-r-2 border-t-2 border-current" />
+            <span className="absolute bottom-0 left-0 h-1.5 w-1.5 border-b-2 border-l-2 border-current" />
+            <span className="absolute bottom-0 right-0 h-1.5 w-1.5 border-b-2 border-r-2 border-current" />
+          </span>
+        </button>
         {onPick && <button type="button" aria-label={pickLabel ?? "Select video position"}
           className="absolute inset-0 cursor-crosshair focus-visible:outline-4 focus-visible:outline-sky-500"
           onClick={(e) => {
@@ -141,9 +177,7 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
             className="mt-1 block h-8 w-full cursor-pointer accent-sky-600 focus-visible:outline-2 focus-visible:outline-sky-600" />
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          <button className={button} disabled={!duration} onClick={() => step(-1)} aria-label="Previous tracked frame">← Frame</button>
           <button className={`${button} min-w-20 bg-sky-700 text-white hover:bg-sky-800`} disabled={!duration} onClick={() => void toggle()}>{playing ? "Pause" : "Play"}</button>
-          <button className={button} disabled={!duration} onClick={() => step(1)} aria-label="Next tracked frame">Frame →</button>
           <label className="ml-auto flex items-center gap-2 text-sm">Speed
             <select className={button} value={speed} onChange={(e) => { const value = Number(e.target.value); setSpeed(value); if (videoRef.current) videoRef.current.playbackRate = value; }}>
               {[0.25, 0.5, 1].map((value) => <option key={value} value={value}>{value}×</option>)}

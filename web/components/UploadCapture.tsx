@@ -18,6 +18,7 @@ export function UploadCapture({ calibration, tapMode, onTap, onDone, disabled }:
   const [clip, setClip] = useState<{ file: File; url: string } | null>(null);
   const [error, setError] = useState("");
   const urlRef = useRef<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => () => {
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
@@ -40,6 +41,14 @@ export function UploadCapture({ calibration, tapMode, onTap, onDone, disabled }:
     setError("");
   }
 
+  function uploadAnother() {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    urlRef.current = null;
+    setClip(null);
+    setError("");
+    if (inputRef.current) inputRef.current.value = "";
+  }
+
   return (
     <div className="space-y-4">
       <header className="rounded-xl bg-slate-100 p-5 dark:bg-slate-900">
@@ -54,6 +63,7 @@ export function UploadCapture({ calibration, tapMode, onTap, onDone, disabled }:
         <span className="block font-semibold">{clip ? "Replace video" : "Choose your dive video"}</span>
         <span className="my-1 block text-slate-600 dark:text-slate-300">MP4, MOV, or WebM · up to 200 MB · side-on footage works best</span>
         <input
+          ref={inputRef}
           type="file"
           accept="video/mp4,video/webm,video/quicktime,.mov"
           disabled={disabled}
@@ -76,6 +86,14 @@ export function UploadCapture({ calibration, tapMode, onTap, onDone, disabled }:
             onClick={() => onDone({ video: clip.file, filename: clip.file.name, source: "upload" })}
           >
             Analyze with YOLO
+          </button>
+          <button
+            type="button"
+            className={`${button} border-slate-400 bg-white hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800`}
+            disabled={disabled}
+            onClick={uploadAnother}
+          >
+            Upload another dive
           </button>
           {(calibration.board_tip === null || calibration.water_y === null) && (
             <p className="text-sm text-amber-700 dark:text-amber-300">Mark both calibration references before analysis.</p>
