@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 // The browser only talks to /api on this server; Next forwards those requests to FastAPI,
-// so the API (and the keys it holds) is never exposed directly.
+// so the API (and the keys it holds) is never exposed directly. API_URL is read from
+// web/.env.local; local development currently targets the current backend on port 8000.
 const apiUrl = process.env.API_URL ?? "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {

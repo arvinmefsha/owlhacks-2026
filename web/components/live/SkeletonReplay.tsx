@@ -31,7 +31,7 @@ export function SkeletonReplay({ dive, number }: { dive: Dive; number: number })
     const { takeoff, entry } = dive.analysis.phases;
     let first = times[0] ?? 0;
     let last = times[times.length - 1] ?? 0;
-    if (Number.isFinite(takeoff) && Number.isFinite(entry) && entry > takeoff) {
+    if (takeoff !== null && entry !== null && Number.isFinite(takeoff) && Number.isFinite(entry) && entry > takeoff) {
       first = Math.max(first, takeoff - BEFORE_TAKEOFF_S);
       last = Math.min(last, entry + AFTER_ENTRY_S);
     }

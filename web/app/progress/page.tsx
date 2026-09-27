@@ -2,115 +2,46 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { api, describeDive, type DiveSummary, type Progress } from "@/lib/api";
 
-import { LineChart } from "@/components/LineChart";
-import { api, describeDive, type Progress } from "@/lib/api";
-
-const LABELS: Record<string, string> = {
-  score_overall: "Overall score",
-  score_takeoff: "Takeoff score",
-  score_flight: "Flight score",
-  score_entry: "Entry score",
-  jump_height_m: "Jump height (m)",
-  entry_angle_deg: "Entry angle from vertical (°)",
-  min_hip_angle: "Tightest hip angle (°)",
-  takeoff_knee_angle: "Knee extension at takeoff (°)",
-  takeoff_hip_angle: "Hip extension at takeoff (°)",
-  entry_body_line_deg: "Body line at entry (°)",
-  flight_time_s: "Flight time (s)",
-  rotation_deg: "Total rotation (°)",
-};
-
-const label = (metric: string) => LABELS[metric] ?? metric.replaceAll("_", " ");
-const day = (x: number) => new Date(x).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+function change(dive: DiveSummary, previous: DiveSummary | undefined) {
+  if (!previous) return "First recorded dive";
+  const currentFocus = new Set(dive.markers.focus);
+  const priorFocus = new Set(previous.markers.focus);
+  const resolved = [...priorFocus].filter((item) => !currentFocus.has(item));
+  const newFocus = [...currentFocus].filter((item) => !priorFocus.has(item));
+  const gained = dive.markers.strengths.filter((item) => !previous.markers.strengths.includes(item));
+  if (resolved.length) return `Improved: ${resolved[0]}`;
+  if (gained.length) return `New strength: ${gained[0]}`;
+  if (newFocus.length) return `New focus: ${newFocus[0]}`;
+  return "Similar observations to the prior dive";
+}
 
 export default function ProgressPage() {
   const [progress, setProgress] = useState<Progress | null>(null);
-  const [metric, setMetric] = useState("score_overall");
   const [error, setError] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  useEffect(() => { api<Progress>("/progress").then(setProgress).catch((e: Error) => setError(e.message)); }, []);
 
-  useEffect(() => {
-    api<Progress>("/progress")
-      .then((p) => {
-        setProgress(p);
-        setError("");
-      })
-      .catch((e: Error) => setError(e.message));
-  }, []);
+  async function deleteAll() {
+    if (!confirm("Delete all saved dives, videos, tracking data, and readiness data? This cannot be undone.")) return;
+    setDeleting(true);
+    try { await api("/dives", { method: "DELETE" }); setProgress({ dives: [], daily: [] }); }
+    catch (e) { setError((e as Error).message); }
+    finally { setDeleting(false); }
+  }
 
-  const metrics = progress ? [...new Set(progress.daily.map((d) => d.metric))].sort((a, b) => label(a).localeCompare(label(b))) : [];
-  const daily = progress?.daily.filter((d) => d.metric === metric) ?? [];
-
-  return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Progress</h1>
-      {error && <p className="text-red-600">{error}</p>}
-
-      {progress && progress.dives.length === 0 && (
-        <p className="text-slate-500">
-          No dives yet.{" "}
-          <Link href="/record" className="text-sky-600 hover:underline">
-            Record one
-          </Link>
-          .
-        </p>
-      )}
-
-      {progress && progress.dives.length > 0 && (
-        <>
-          <section className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-            <h2 className="mb-2 font-semibold">Score per dive</h2>
-            <LineChart
-              formatX={day}
-              series={[
-                {
-                  name: "Overall score",
-                  color: "#0ea5e9",
-                  points: progress.dives.map((d) => ({ x: new Date(d.recorded_at).getTime(), y: d.overall_score })),
-                },
-              ]}
-            />
-          </section>
-
-          <section className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="font-semibold">Daily average</h2>
-              <select
-                value={metric}
-                onChange={(e) => setMetric(e.target.value)}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
-              >
-                {metrics.map((m) => (
-                  <option key={m} value={m}>
-                    {label(m)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <LineChart
-              formatX={day}
-              series={[{ name: label(metric), color: "#10b981", points: daily.map((d) => ({ x: new Date(d.bucket).getTime(), y: d.avg_value })) }]}
-            />
-          </section>
-
-          <section>
-            <h2 className="mb-2 font-semibold">Dives</h2>
-            <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
-              {[...progress.dives].reverse().map((d) => (
-                <li key={d.id}>
-                  <Link href={`/dives/${d.id}`} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-900">
-                    <div>
-                      <div className="text-sm font-medium capitalize">{describeDive(d.setup)}</div>
-                      <div className="text-xs text-slate-500">{new Date(d.recorded_at).toLocaleString()}</div>
-                    </div>
-                    <span className="text-lg font-semibold">{d.overall_score.toFixed(1)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </>
-      )}
-    </div>
-  );
+  const dives = progress?.dives.filter((d) => d.analysis_method === "macro-observations-v2") ?? [];
+  return <div className="space-y-6">
+    <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-xl font-semibold">Progress</h1><button onClick={deleteAll} disabled={deleting} className="rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950">{deleting ? "Deleting…" : "Delete all dives and data"}</button></div>
+    {error && <p className="text-red-600">{error}</p>}
+    {progress && progress.dives.length === 0 && <p className="text-slate-500">No dives yet. <Link href="/record" className="text-sky-600 hover:underline">Record one</Link>.</p>}
+    {progress && progress.dives.length > 0 && <>
+      <section className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"><h2 className="font-semibold">Your coaching timeline</h2><p className="mt-1 text-sm text-slate-500">Each dive records visible strengths and the next focus. Progress appears when a prior focus clears or a new strength becomes consistent.</p></section>
+      {dives.length === 0 ? <p className="text-slate-500">New uploads will appear here as coaching observations.</p> : <ol className="space-y-3">{dives.map((dive, index) => {
+        const prior = dives[index - 1];
+        return <li key={dive.id} className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"><Link href={`/dives/${dive.id}`} className="block hover:text-sky-600"><div className="flex flex-wrap justify-between gap-2"><span className="font-medium capitalize">{describeDive(dive.setup)}</span><span className="text-sm text-slate-500">{new Date(dive.recorded_at).toLocaleString()}</span></div><p className="mt-2 text-sm font-medium text-sky-700 dark:text-sky-300">{change(dive, prior)}</p><div className="mt-3 grid gap-2 text-sm sm:grid-cols-2"><p><span className="text-slate-500">Strengths: </span>{dive.markers.strengths.slice(0, 2).join(" · ") || "No clear strength recorded yet"}</p><p><span className="text-slate-500">Next focus: </span>{dive.markers.focus.slice(0, 2).join(" · ") || "No supported focus area"}</p></div></Link></li>;
+      })}</ol>}
+    </>}
+  </div>;
 }

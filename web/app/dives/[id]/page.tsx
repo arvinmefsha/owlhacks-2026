@@ -11,13 +11,9 @@ import { drawPose } from "@/lib/pose-drawing";
 
 const PHASES: Phase[] = ["takeoff", "flight", "entry"];
 
-function scoreColor(score: number) {
-  if (score >= 8) return "text-emerald-600";
-  if (score >= 6) return "text-amber-600";
-  return "text-red-600";
-}
-
-function formatValue(value: number, unit: string) {
+function formatValue(value: number | null, unit: string) {
+  if (value === null) return "Unavailable";
+  value = Number(value.toFixed(2));
   return unit.startsWith("°") || unit.startsWith("%") ? `${value}${unit}` : `${value} ${unit}`;
 }
 
@@ -64,10 +60,12 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
   if (!dive) return <p className="text-slate-500">Loading dive…</p>;
 
   const { analysis, feedback } = dive;
+  const macro = analysis.method === "macro-observations-v2";
+  const legacy = !macro;
   const phaseTimes = { takeoff: analysis.phases.takeoff, apex: analysis.phases.apex, entry: analysis.phases.entry };
-  const markers = Object.entries(phaseTimes).map(([label, x]) => ({ label, x }));
+  const markers = Object.entries(phaseTimes).flatMap(([label, x]) => x === null ? [] : [{ label, x }]);
   const series = analysis.series;
-  const points = (key: keyof typeof series) => series.t.map((t, i) => ({ x: t ?? 0, y: series[key][i] }));
+  const points = (key: keyof typeof series) => series.t.map((t, i) => ({ x: t ?? 0, y: series[key]?.[i] ?? null }));
   const catalog = new Map(workouts.map((w) => [w.id, w]));
 
   return (
@@ -77,23 +75,19 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
           <h1 className="text-xl font-semibold capitalize">{describeDive(dive.setup)}</h1>
           <p className="text-sm text-slate-500">{new Date(dive.recorded_at).toLocaleString()}</p>
         </div>
-        <div className="flex items-center gap-6">
-          <div className="text-center">
-            <div className={`text-4xl font-bold ${scoreColor(analysis.scores.overall)}`}>{analysis.scores.overall.toFixed(1)}</div>
-            <div className="text-xs text-slate-500">overall / 10</div>
-          </div>
-          {PHASES.map((p) =>
-            analysis.scores[p] === undefined ? null : (
-              <div key={p} className="text-center">
-                <div className={`text-2xl font-semibold ${scoreColor(analysis.scores[p]!)}`}>{analysis.scores[p]!.toFixed(1)}</div>
-                <div className="text-xs capitalize text-slate-500">{p}</div>
-              </div>
-            ),
-          )}
-        </div>
+        <p className="max-w-xs text-right text-sm text-slate-500">
+          {legacy ? "Saved with retired analysis" : "Evidence-based coaching observations"}
+        </p>
       </header>
 
-      {analysis.warnings.length > 0 && (
+      {legacy && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+          <p className="font-semibold">This saved dive uses retired analysis.</p>
+          <p className="mt-1">Current uploads use evidence-based coaching observations instead of numerical scores.</p>
+        </div>
+      )}
+
+      {!legacy && analysis.warnings.length > 0 && (
         <ul className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
           {analysis.warnings.map((w) => (
             <li key={w}>{w}</li>
@@ -108,30 +102,33 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
           ) : (
             <p className="rounded-md bg-slate-100 p-4 text-sm text-slate-500 dark:bg-slate-900">No video was saved for this dive.</p>
           )}
-          <div className="flex flex-wrap gap-2 text-sm">
+          {macro && <div className="flex flex-wrap gap-2 text-sm">
             {Object.entries(phaseTimes).map(([label, t]) => (
-              <button key={label} onClick={() => seek(t)} className="rounded-md border border-slate-300 px-3 py-1.5 capitalize dark:border-slate-700">
-                {label} · {t.toFixed(2)} s
+              <button key={label} disabled={t === null} onClick={() => seek(t)} className="rounded-md border border-slate-300 px-3 py-1.5 capitalize disabled:opacity-50 dark:border-slate-700">
+                {label} · {t === null ? "Unavailable" : `${t.toFixed(2)} s`}
               </button>
             ))}
-          </div>
-          <div className="space-y-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-            <h2 className="font-semibold">Joint angles</h2>
+          </div>}
+          {macro && <div className="space-y-4 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+            <h2 className="font-semibold">Envelope compaction</h2>
             <LineChart
-              unit="°"
+              unit=" ratio"
               markers={markers}
               onPick={seek}
-              series={[
-                { name: "Hip angle", color: "#0ea5e9", points: points("hip_angle") },
-                { name: "Knee angle", color: "#f97316", points: points("knee_angle") },
-              ]}
+              series={[{ name: "Box height / standing height", color: "#0ea5e9", points: points("box_height_ratio") }]}
             />
-            <h2 className="font-semibold">Height above takeoff</h2>
-            <LineChart unit=" m" markers={markers} onPick={seek} series={[{ name: "Centre of mass", color: "#10b981", points: points("height_m") }]} />
-          </div>
+            <h2 className="font-semibold">Top of body above board</h2>
+            <LineChart unit=" m" markers={markers} onPick={seek} series={[{ name: "Box top", color: "#10b981", points: points("box_top_height_m") }]} />
+          </div>}
         </section>
 
         <aside className="space-y-5">
+          {legacy ? (
+            <div className="rounded-lg border border-slate-200 p-4 text-sm dark:border-slate-800">
+              <h2 className="font-semibold">Coaching feedback retired</h2>
+              <p className="mt-1 text-slate-600 dark:text-slate-400">The old feedback depended on the same incorrect measurements, so it is hidden rather than presented as reliable advice.</p>
+            </div>
+          ) : <>
           <div>
             <div className="mb-1 flex items-center gap-2">
               <h2 className="font-semibold">Coach&apos;s summary</h2>
@@ -175,6 +172,7 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
 
           <div>
             <h2 className="mb-2 font-semibold">Workouts</h2>
+            {feedback.workouts.length === 0 && <p className="text-sm text-slate-500">No corrective workout assigned without a supported fault.</p>}
             <ul className="space-y-2">
               {feedback.workouts.map((pick) => {
                 const w = catalog.get(pick.id);
@@ -195,10 +193,11 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
               })}
             </ul>
           </div>
+          </>}
         </aside>
       </div>
 
-      <section className="space-y-3">
+      {macro && <section className="space-y-3">
         <h2 className="font-semibold">All measurements</h2>
         <div className="grid gap-4 md:grid-cols-3">
           {PHASES.map((phase) => (
@@ -209,9 +208,9 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
           {analysis.info.map((i) => `${i.label}: ${formatValue(i.value, i.unit)}`).join(" · ")}
           {analysis.rotation.measured_deg !== null && ` · Expected rotation: ${analysis.rotation.expected_deg}°`}
         </p>
-      </section>
+      </section>}
 
-      {dive.has_video && <VisionReviewPanel dive={dive} videoRef={videoRef} />}
+      {macro && dive.has_video && <VisionReviewPanel dive={dive} videoRef={videoRef} />}
 
       <div className="flex gap-4 border-t border-slate-200 pt-4 text-sm dark:border-slate-800">
         <Link href="/record" className="text-sky-600 hover:underline">
@@ -239,18 +238,13 @@ function MetricTable({ phase, metrics, onSeek }: { phase: Phase; metrics: Metric
             <button onClick={() => onSeek(m.t)} className="w-full text-left" disabled={m.t === null}>
               <div className="flex justify-between gap-2">
                 <span>{m.label}</span>
-                <span className={`font-medium ${scoreColor(m.score)}`}>{m.score.toFixed(1)}</span>
+                <span className={`font-medium ${m.status === "flagged" ? "text-red-600" : m.status === "within_target" ? "text-emerald-600" : "text-slate-500"}`}>{m.status?.replaceAll("_", " ") ?? "Unavailable"}</span>
               </div>
               <div className="flex justify-between gap-2 text-xs text-slate-500">
                 <span>{formatValue(m.value, m.unit)}</span>
                 <span>target {m.target}</span>
               </div>
-              <div className="mt-1 h-1 rounded bg-slate-200 dark:bg-slate-800">
-                <div
-                  className={`h-full rounded ${m.score >= 8 ? "bg-emerald-500" : m.score >= 6 ? "bg-amber-500" : "bg-red-500"}`}
-                  style={{ width: `${m.score * 10}%` }}
-                />
-              </div>
+              {m.reason && <p className="mt-1 text-xs text-slate-500">{m.reason}</p>}
             </button>
           </li>
         ))}
@@ -296,6 +290,7 @@ function VisionReviewPanel({ dive, videoRef }: { dive: Dive; videoRef: React.Ref
     try {
       const form = new FormData();
       const { takeoff, apex, entry } = dive.analysis.phases;
+      if (takeoff === null || apex === null || entry === null) throw new Error("All three milestones must be visible before requesting a visual review.");
       for (const [name, t] of [["takeoff", takeoff], ["apex", apex], ["entry", entry]] as const) {
         form.append(name, await captureKeyframe(video, dive, t), `${name}.jpg`);
       }
@@ -314,7 +309,7 @@ function VisionReviewPanel({ dive, videoRef }: { dive: Dive; videoRef: React.Ref
           <h2 className="font-semibold">Visual review</h2>
           <p className="text-sm text-slate-500">Gemini looks at the takeoff, top and entry frames for things the measurements miss.</p>
         </div>
-        <button onClick={run} disabled={busy} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-slate-900">
+        <button onClick={run} disabled={busy || [dive.analysis.phases.takeoff, dive.analysis.phases.apex, dive.analysis.phases.entry].some(t => t === null)} className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-slate-900">
           {busy ? "Reviewing…" : review ? "Review again" : "Run visual review"}
         </button>
       </div>

@@ -203,6 +203,7 @@ class UltralyticsTopDownBackend:
             confidence=all_confidence[index],
             box=boxes[index],
             detection_confidence=float(detection_confidence),
+            box_confidence=float(person_confidence[index]),
         )
 
 

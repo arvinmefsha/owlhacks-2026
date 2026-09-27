@@ -194,6 +194,20 @@ def delete_dive(dive_id: UUID, db: DB, settings: AppSettings):
         path.with_suffix(".tracking.npz").unlink(missing_ok=True)
 
 
+@app.delete("/dives", status_code=204)
+def delete_all_dives(db: DB, settings: AppSettings):
+    diver_id = db.get_or_create_default_diver()["id"]
+    rows = db.delete_all_dives(diver_id)
+    for row in rows:
+        path = _video_file(settings, row.get("video_path"))
+        if path:
+            path.unlink(missing_ok=True)
+            path.with_suffix(".tracking.npz").unlink(missing_ok=True)
+    for path in settings.upload_dir.iterdir():
+        if path.is_file() and (path.name.startswith("job-") or path.suffix.lower() == ".tracking.npz"):
+            path.unlink(missing_ok=True)
+
+
 @app.post("/dives/{dive_id}/vision-review")
 def vision_review(
     dive_id: UUID,

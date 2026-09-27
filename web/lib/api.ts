@@ -34,24 +34,27 @@ export type Metric = {
   key: string;
   label: string;
   phase: Phase;
-  value: number;
+  value: number | null;
   unit: string;
   target: string;
-  score: number;
+  score: number | null;
+  status?: "unavailable" | "not_applicable" | "uncertain" | "borderline" | "within_target" | "flagged";
+  reason?: string | null;
   fault: string | null;
   t: number | null;
 };
 
 export type Analysis = {
-  phases: { takeoff: number; apex: number; entry: number; entry_method: string };
-  scores: { overall: number } & Partial<Record<Phase, number>>;
+  method?: string;
+  phases: { takeoff: number | null; apex: number | null; entry: number | null; entry_method: string };
+  scores: { overall: number | null } & Partial<Record<Phase, number>>;
   metrics: Metric[];
   faults: { id: string; title: string; phase: Phase; severity: "minor" | "major"; t: number | null }[];
   info: { key: string; label: string; value: number; unit: string }[];
   warnings: string[];
   head_first: boolean;
   rotation: { measured_deg: number | null; expected_deg: number };
-  series: Record<"t" | "hip_angle" | "knee_angle" | "height_m" | "rotation_deg", (number | null)[]>;
+  series: Record<string, (number | null)[]>;
 };
 
 export type Feedback = {
@@ -73,7 +76,7 @@ export type Dive = {
   video_width: number;
   video_height: number;
   has_video: boolean;
-  overall_score: number;
+  overall_score: number | null;
   analysis: Analysis;
   feedback: Feedback;
   feedback_source: "gemini" | "rules";
@@ -88,8 +91,10 @@ export type DiveSummary = {
   id: string;
   recorded_at: string;
   setup: DiveSetup;
-  overall_score: number;
+  overall_score: number | null;
+  analysis_method: string | null;
   top_fault: string | null;
+  markers: { strengths: string[]; focus: string[]; observations: number };
 };
 
 export type Workout = {
@@ -103,7 +108,7 @@ export type Workout = {
 };
 
 export type Progress = {
-  dives: { id: string; recorded_at: string; setup: DiveSetup; overall_score: number }[];
+  dives: DiveSummary[];
   daily: { bucket: string; metric: string; avg_value: number; avg_score: number | null; dives: number }[];
 };
 

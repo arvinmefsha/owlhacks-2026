@@ -18,6 +18,15 @@ def _loads(value: str | None, default=None):
     return default if value is None else json.loads(value)
 
 
+def _markers(analysis: dict) -> dict:
+    metrics = analysis.get("metrics", [])
+    return {
+        "strengths": [m["label"] for m in metrics if m.get("status") == "within_target"],
+        "focus": [f["title"] for f in analysis.get("faults", [])],
+        "observations": sum(m.get("value") is not None for m in metrics),
+    }
+
+
 class LocalDatabase:
     """Small single-machine database implementing the production database interface."""
 
@@ -163,7 +172,11 @@ class LocalDatabase:
                     key: dive[key]
                     for key in ("id", "diver_id", "recorded_at", "setup", "source", "overall_score", "scores", "feedback_source")
                 }
-                | {"top_fault": faults[0]["title"] if faults else None}
+                | {
+                    "analysis_method": dive.get("analysis", {}).get("method"),
+                    "top_fault": faults[0]["title"] if faults else None,
+                    "markers": _markers(dive.get("analysis", {})),
+                }
             )
         return result
 
@@ -227,6 +240,20 @@ class LocalDatabase:
             connection.execute("DELETE FROM dive_metrics WHERE dive_id = ?", (str(dive_id),))
             connection.execute("DELETE FROM dives WHERE id = ?", (str(dive_id),))
         return {"id": dive_id, "video_path": _loads(row["payload"], {}).get("video_path")}
+
+    def delete_all_dives(self, diver_id: UUID) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM dives WHERE diver_id = ?", (str(diver_id),)
+            ).fetchall()
+            connection.execute(
+                "DELETE FROM pose_frames WHERE dive_id IN (SELECT id FROM dives WHERE diver_id = ?)",
+                (str(diver_id),),
+            )
+            connection.execute("DELETE FROM dive_metrics WHERE diver_id = ?", (str(diver_id),))
+            connection.execute("DELETE FROM readiness WHERE diver_id = ?", (str(diver_id),))
+            connection.execute("DELETE FROM dives WHERE diver_id = ?", (str(diver_id),))
+        return [_loads(row["payload"], {}) for row in rows]
 
     def save_readiness(self, diver_id: UUID, at: datetime, heart_rate, breathing_rate) -> dict:
         row = {

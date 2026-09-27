@@ -57,9 +57,13 @@ export function drawPose(ctx: CanvasRenderingContext2D, pose: number[][] | null,
   const { width, height } = ctx.canvas;
   const scale = Math.max(2, width / 550);
   ctx.save(); ctx.lineWidth = scale; ctx.lineCap = "round";
+  if (waterY !== null && Number.isFinite(waterY)) {
+    // Clip stroke widths and node circles too, not just segment center lines.
+    ctx.beginPath(); ctx.rect(0, 0, width, Math.max(0, Math.min(1, waterY)) * height); ctx.clip();
+  }
   for (const [a, b] of COCO_CONNECTIONS) {
     const p = pose[a], q = pose[b];
-    if (!p || !q || Math.min(p[3], q[3]) < 0.15) continue;
+    if (!p || !q || ![p[0], p[1], p[3], q[0], q[1], q[3]].every(Number.isFinite) || Math.min(p[3], q[3]) < 0.15) continue;
     if (waterY !== null && p[1] >= waterY && q[1] >= waterY) continue;
     const measured = Math.min(p[3], q[3]) >= 0.3;
     ctx.strokeStyle = measured ? "#22d3ee" : "#fbbf24";
@@ -74,7 +78,7 @@ export function drawPose(ctx: CanvasRenderingContext2D, pose: number[][] | null,
   }
   ctx.setLineDash([]);
   for (const [x, y, , confidence] of pose) {
-    if (confidence < 0.15 || (waterY !== null && y >= waterY)) continue;
+    if (![x, y, confidence].every(Number.isFinite) || confidence < 0.15 || (waterY !== null && y >= waterY)) continue;
     ctx.beginPath(); ctx.arc(x * width, y * height, scale * 1.6, 0, Math.PI * 2);
     ctx.fillStyle = confidence >= 0.3 ? "#22d3ee" : "#fbbf24";
     ctx.fill(); ctx.strokeStyle = "#0f172a"; ctx.stroke();

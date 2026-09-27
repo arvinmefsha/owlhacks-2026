@@ -28,6 +28,7 @@ class TrackerConfig:
     measurement_variance: float = 16.0
     detection_interval: int = 4
     retry_interval: int = 3
+    calculate_legacy_kinematics: bool = True
 
 
 class DiverBoxTracker:
@@ -289,6 +290,8 @@ class DivingTracker:
                         board_tip=board_tip,
                         raw_keypoints=raw_points,
                         raw_confidence=raw_confidence,
+                        measured_box=detected_box.copy() if detected_box is not None else None,
+                        box_confidence=float(detection_confidence),
                     )
                 )
                 index += 1
@@ -306,6 +309,9 @@ class DivingTracker:
         for i, choice in enumerate(selected):
             pose = candidate_rows[i][choice]
             if pose is not None:
+                # An observed, unpadded envelope, never the predicted crop box.
+                tracks[i].measured_box = pose.box.copy()
+                tracks[i].box_confidence = (pose.box_confidence if pose.box_confidence is not None else pose.detection_confidence)
                 tracks[i].raw_keypoints, tracks[i].raw_confidence = stabilize_left_right(
                     pose.keypoints.copy(), pose.confidence.copy(), reference)
                 reference = tracks[i].raw_keypoints.copy()
@@ -324,7 +330,8 @@ class DivingTracker:
             track.com = anthropometric_com(points[i])
         timings["refine"] = perf_counter()-start
         start = perf_counter()
-        analysis = KinematicsAnalyzer(calibration, fps).analyze(tracks)
+        analysis = (KinematicsAnalyzer(calibration, fps).analyze(tracks)
+                    if self.config.calculate_legacy_kinematics else AnalysisResult(rows=[], summary={}))
         timings["kinematics"] = perf_counter()-start
         timings["total"] = perf_counter()-started
         self.diagnostics = {"timing": timeline.metadata(), "seconds": timings, "calls": calls,

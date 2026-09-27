@@ -16,8 +16,18 @@ SQL_DIR = Path(__file__).resolve().parent
 SESSION_GAP = timedelta(hours=3)
 DIVE_SUMMARY_COLUMNS = (
     "id, diver_id, recorded_at, setup, source, overall_score, scores, feedback_source, "
+    "analysis ->> 'method' AS analysis_method, analysis, "
     "analysis -> 'faults' -> 0 ->> 'title' AS top_fault"
 )
+
+
+def _markers(analysis: dict) -> dict:
+    metrics = analysis.get("metrics", [])
+    return {
+        "strengths": [m["label"] for m in metrics if m.get("status") == "within_target"],
+        "focus": [f["title"] for f in analysis.get("faults", [])],
+        "observations": sum(m.get("value") is not None for m in metrics),
+    }
 
 
 def split_statements(sql: str) -> list[str]:
@@ -168,10 +178,11 @@ class Database:
 
     def list_dives(self, diver_id: UUID, limit: int) -> list[dict]:
         with self.pool.connection() as conn:
-            return conn.execute(
+            rows = conn.execute(
                 f"SELECT {DIVE_SUMMARY_COLUMNS} FROM dives WHERE diver_id = %s ORDER BY recorded_at DESC LIMIT %s",
                 (diver_id, limit),
             ).fetchall()
+        return [{key: value for key, value in row.items() if key != "analysis"} | {"markers": _markers(row["analysis"])} for row in rows]
 
     def get_dive_meta(self, dive_id: UUID) -> dict | None:
         """The dive row without pose frames or the diver join."""
@@ -215,12 +226,22 @@ class Database:
         with self.pool.connection() as conn:
             return conn.execute("DELETE FROM dives WHERE id = %s RETURNING id, video_path", (dive_id,)).fetchone()
 
+    def delete_all_dives(self, diver_id: UUID) -> list[dict]:
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT video_path FROM dives WHERE diver_id = %s", (diver_id,)
+            ).fetchall()
+            conn.execute("DELETE FROM dive_metrics WHERE diver_id = %s", (diver_id,))
+            conn.execute("DELETE FROM readiness WHERE diver_id = %s", (diver_id,))
+            conn.execute("DELETE FROM dives WHERE diver_id = %s", (diver_id,))
+        return rows
+
     # Progress
 
     def progress(self, diver_id: UUID) -> dict:
         with self.pool.connection() as conn:
             dives = conn.execute(
-                "SELECT id, recorded_at, setup, overall_score, scores FROM dives "
+                "SELECT id, recorded_at, setup, overall_score, scores, analysis ->> 'method' AS analysis_method, analysis FROM dives "
                 "WHERE diver_id = %s ORDER BY recorded_at LIMIT 500",
                 (diver_id,),
             ).fetchall()
@@ -232,4 +253,4 @@ class Database:
                 """,
                 (diver_id,),
             ).fetchall()
-        return {"dives": dives, "daily": daily}
+        return {"dives": [{key: value for key, value in row.items() if key != "analysis"} | {"markers": _markers(row["analysis"])} for row in dives], "daily": daily}

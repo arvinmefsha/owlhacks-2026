@@ -1,4 +1,4 @@
-"""Run the full analysis on one dive's landmark frames."""
+"""Legacy v1 helpers for historical data/tests. Production entry point is analysis.macro."""
 
 from collections.abc import Sequence
 

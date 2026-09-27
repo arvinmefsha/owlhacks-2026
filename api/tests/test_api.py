@@ -182,6 +182,36 @@ def test_readiness(client):
     assert client.get("/readiness").json()["readiness_hr"] == 72
 
 
+def test_delete_all_dives_removes_videos_and_readiness(client, tmp_path):
+    diver_id = main.app.state.db.get_or_create_default_diver()["id"]
+    filename = "stored.mp4"
+    (tmp_path / filename).write_bytes(b"stored-video")
+    dive_id = uuid4()
+    main.app.state.db.insert_dive(
+        {
+            "id": dive_id,
+            "diver_id": diver_id,
+            "recorded_at": datetime.now(UTC),
+            "setup": TUCK_103C,
+            "calibration": {},
+            "source": "upload",
+            "video_path": filename,
+            "video_mime": "video/mp4",
+            "analysis": {"method": "macro-envelope-v1"},
+            "overall_score": 9.0,
+            "scores": {"overall": 9.0},
+            "feedback": {},
+            "feedback_source": "rules",
+        },
+        [],
+        [],
+    )
+    client.post("/readiness", json={"heart_rate": 72})
+    assert client.delete("/dives").status_code == 204
+    assert not (tmp_path / filename).exists()
+    assert client.get("/progress").json()["dives"] == []
+
+
 def test_workouts_catalog(client):
     workouts = client.get("/workouts").json()
     assert len(workouts) >= 20
