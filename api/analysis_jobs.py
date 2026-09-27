@@ -7,6 +7,7 @@ loaded between dives, and exposes progress without tying inference to an HTTP re
 from __future__ import annotations
 
 import logging
+import json
 import shutil
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -22,6 +23,7 @@ from analysis import analyze_dive
 from diving_tracker.backend import BackendConfig, UltralyticsTopDownBackend
 from diving_tracker.calibration import CalibrationData
 from diving_tracker.tracker import DivingTracker, TrackerConfig
+from diving_tracker.dive_context import DiveContext
 
 log = logging.getLogger(__name__)
 
@@ -158,7 +160,10 @@ class AnalysisJobManager:
                     total_frames=frame_count or total or None,
                 )
 
-            tracks, kinematics = tracker.process(video_path, calibration, progress)
+            setup = payload["setup"]
+            tracks, kinematics = tracker.process(video_path, calibration, progress,
+                context=DiveContext(position=setup.get("position"), direction=setup.get("direction"),
+                                    somersaults=setup.get("somersaults")))
             self._update(job_id, stage="Calculating dive metrics", progress=0.86)
             frames = []
             for track in tracks:
@@ -189,7 +194,7 @@ class AnalysisJobManager:
                 "family": "YOLO11-Pose",
                 "profile": payload["profile"],
                 "schema": "coco17-v1",
-                "pipeline": "pts-offline-v2",
+                "pipeline": "pts-rotation-carry-v4",
             }
             analysis["kinematics"] = kinematics.summary
             analysis["processing"] = tracker.diagnostics
@@ -214,7 +219,8 @@ class AnalysisJobManager:
                     raw_confidence=np.array([t.raw_confidence for t in tracks]),
                     points=np.array([t.keypoints for t in tracks]),
                     confidence=np.array([t.confidence for t in tracks]),
-                    predicted=np.array([t.predicted for t in tracks]))
+                    predicted=np.array([t.predicted for t in tracks]),
+                    candidate_diagnostics=np.array(json.dumps(tracker.candidate_diagnostics)))
                 analysis["processing"]["seconds"]["save_artifact"] = perf_counter()-save_started
                 self.db.insert_dive(
                     {

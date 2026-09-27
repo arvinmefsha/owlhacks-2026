@@ -12,6 +12,8 @@ from .backend import BackendConfig, UltralyticsTopDownBackend
 from .calibration import CalibrationData
 from .refinement import refine_poses, reliable_pose, pose_quality
 from .timing import read_timeline
+from .dive_context import DiveContext, RotationState, recovery_needed, select_sequence, phase_hypothesis
+from .rotation_recovery import OrientationRecovery
 from .kinematics import KinematicsAnalyzer, anthropometric_com, stabilize_left_right
 from .models import AnalysisResult, FrameTrack
 
@@ -145,9 +147,18 @@ class DivingTracker:
         video_path: str | Path,
         calibration: CalibrationData,
         progress: Callable[[int, int], None] | None = None,
+        context: DiveContext | None = None,
     ) -> tuple[list[FrameTrack], AnalysisResult]:
         started = perf_counter()
+        context = context or DiveContext()
+        rotation_state = RotationState()
+        previous_pose = None
+        candidate_rows = []
+        self.candidate_diagnostics = []
+        phases = []
+        previous_phase = "unknown"
         timeline = read_timeline(video_path)
+        recovery = OrientationRecovery(len(timeline.times))
         timings = {"timeline": perf_counter()-started, "decode": 0., "detect": 0., "pose": 0., "board": 0.}
         calls = {"detect": 0, "pose": 0, "retry": 0}
         capture = cv2.VideoCapture(str(video_path))
@@ -168,7 +179,6 @@ class DivingTracker:
         filtered_reference: np.ndarray | None = None
         index = 0
         last_detection = -self.config.detection_interval
-        last_retry = -self.config.retry_interval
         previous_reliable = False
 
         def detect(frame, predicted_box):
@@ -206,31 +216,40 @@ class DivingTracker:
                     last_detection = index
                 crop_box = detected_box if detected_box is not None else predicted_box
                 pose = None
+                candidates = []
+                oriented_candidates = []
+                primary_turn = recovery.turn
                 if crop_box is not None:
-                    pose = estimate(frame, crop_box, detection_confidence)
+                    pose = estimate(frame, crop_box, detection_confidence, rotation=primary_turn)
+                    if pose is not None: candidates.append(pose)
+                    oriented_candidates.append((primary_turn, pose))
                 # Reacquire immediately if the cheap propagated crop fails.
                 if not reliable_pose(pose) and not do_detect:
                     detected_box, detection_confidence = detect(frame, predicted_box)
                     last_detection = index
                     if detected_box is not None:
                         crop_box = detected_box
-                        candidate = estimate(frame, crop_box, detection_confidence)
+                        candidate = estimate(frame, crop_box, detection_confidence, rotation=primary_turn)
+                        if candidate is not None: candidates.append(candidate)
+                        oriented_candidates.append((primary_turn, candidate))
                         if pose_quality(candidate) > pose_quality(pose):
                             pose = candidate
-                # At most one rotated/expanded retry per interval, while the
-                # tracked crop is still above the surface. Never chase a splash.
-                if (not reliable_pose(pose) and crop_box is not None and crop_box[1] < calibration.water_y
-                        and index-last_retry >= self.config.retry_interval):
-                    reference = pose.keypoints if pose is not None else filtered_reference
-                    rotation = 2
-                    if reference is not None and np.isfinite(reference[[5,6,11,12]]).all():
-                        torso = reference[[5,6]].mean(axis=0)-reference[[11,12]].mean(axis=0)
-                        rotation = (1 if torso[0] > 0 else 3) if abs(torso[0]) > abs(torso[1]) else (2 if torso[1] > 0 else 0)
-                    candidate = estimate(frame, crop_box, detection_confidence, rotation=rotation, padding=0.5, pose_size=960)
-                    last_retry = index
+                predicted_angle = rotation_state.predict(timestamp)
+                for rotation in recovery.alternatives(pose, crop_box, index, board_tip, calibration.water_y,
+                        not reliable_pose(pose) or recovery_needed(pose, previous_pose, predicted_angle, context)):
+                    candidate = estimate(frame, crop_box, detection_confidence,
+                                         rotation=rotation, padding=.5, pose_size=960)
+                    if candidate is not None:candidates.append(candidate)
+                    oriented_candidates.append((rotation,candidate))
                     calls["retry"] += 1
-                    if pose_quality(candidate) > pose_quality(pose) + 0.05:
-                        pose = candidate
+                pose = recovery.accept(oriented_candidates)
+
+                candidate_rows.append(candidates or [None])
+                rotation_state.update(pose, timestamp)
+                previous_pose = pose
+                phase = phase_hypothesis(pose, board_tip, calibration.water_y, previous_phase)
+                phases.append(phase)
+                if phase != "unknown": previous_phase = phase
 
                 raw_points = np.full((17,2), np.nan)
                 raw_confidence = np.zeros(17)
@@ -282,6 +301,22 @@ class DivingTracker:
         if len(tracks) != len(timeline.times):
             raise ValueError("Video decoders disagree on frame count; cannot align poses safely.")
         start = perf_counter()
+        selected = select_sequence(candidate_rows, timeline.times)
+        reference = None
+        for i, choice in enumerate(selected):
+            pose = candidate_rows[i][choice]
+            if pose is not None:
+                tracks[i].raw_keypoints, tracks[i].raw_confidence = stabilize_left_right(
+                    pose.keypoints.copy(), pose.confidence.copy(), reference)
+                reference = tracks[i].raw_keypoints.copy()
+                reference[tracks[i].raw_confidence < .4] = np.nan
+            else:
+                reference = None
+            self.candidate_diagnostics.append({"frame": i, "selected": choice,
+                "phase_hypothesis": phases[i],
+                "candidates": [{"points": [[float(v) if np.isfinite(v) else None for v in xy] for xy in p.keypoints],
+                                "confidence": p.confidence.tolist(), "box": p.box.tolist()}
+                               if p is not None else None for p in candidate_rows[i]]})
         points, scores, predicted = refine_poses(timeline.times,
             np.array([t.raw_keypoints for t in tracks]), np.array([t.raw_confidence for t in tracks]), calibration.water_y)
         for i, track in enumerate(tracks):
@@ -293,6 +328,11 @@ class DivingTracker:
         timings["kinematics"] = perf_counter()-start
         timings["total"] = perf_counter()-started
         self.diagnostics = {"timing": timeline.metadata(), "seconds": timings, "calls": calls,
+                            "context": {"position": context.position, "direction": context.direction,
+                                        "somersaults": context.somersaults},
+                            "selection": "bounded-sequence-v1",
+                            "retry_budget": recovery.budget,
+                            "alternative_frames": sum(len(row)>1 for row in candidate_rows),
                             "device": backend.config.device, "filter": "offline-centered-v1"}
         analysis.summary["processing"] = self.diagnostics
         return tracks, analysis

@@ -62,6 +62,14 @@ The API queues inference and reports its stage, frame count, and progress. A com
 
 Pose estimates are not ground truth. Blur, strong reflections, severe occlusion, small subjects, camera motion, and other people can still reduce accuracy.
 
+### Dive-aware recovery
+
+Analysis jobs pass the selected dive position, direction, and somersault count into the tracker. Tuck context increases recovery attention during compact or inverted poses. The image-space spin is inferred from observed torso motion, not the named dive direction. The expected somersault count never forces an orientation, phase duration, or final pose.
+
+High-confidence but inconsistent motion can trigger rotated/expanded crop recovery. Once airborne, recovery frames are spaced at least three frames apart and compare the three remaining quarter-turn orientations. A successful orientation is reused on following frames instead of reverting to an upright input. Extra inference is capped at one third of the source frame count; it is not spent on ordinary board preparation. Missing elbows/wrists trigger recovery, and pose scoring includes distal-arm confidence so reliable legs cannot conceal missing arms. Candidates are compared across the completed sequence using confidence, extreme-geometry checks, and a small capped continuity cost. Selected poses are actual model observations, not synthesized ideal dives. The existing short-gap and waterline rules still apply.
+
+The local `.tracking.npz` includes `candidate_diagnostics` (JSON text containing candidates, selected indices, and observed phase hypotheses). Processing metadata identifies `pts-rotation-carry-v4`. Reanalyze the original clip to use this pipeline; existing saved poses are not silently rewritten. The standalone tracker accepts optional `DiveContext` and remains usable without a declared dive.
+
 ## Existing reviews and verification
 
 Install the updated backend dependencies and restart the API before testing. Existing Python workers retain previously imported code. `YOLO_DEVICE` can override automatic CUDA/MPS/CPU selection; availability is checked at runtime.

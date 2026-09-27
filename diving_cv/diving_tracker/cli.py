@@ -13,6 +13,7 @@ from .backend import BackendConfig
 from .calibration import CalibrationData, KinematicCalibrator
 from .kinematics import csv_ready_rows
 from .tracker import DivingTracker, TrackerConfig
+from .dive_context import DiveContext
 
 
 def parser() -> argparse.ArgumentParser:
@@ -20,6 +21,9 @@ def parser() -> argparse.ArgumentParser:
         description="Track and analyze a 1 m springboard dive from a static side-view video."
     )
     output.add_argument("video", type=Path, help="Input video path")
+    output.add_argument("--position", choices=["tuck", "pike", "straight"], help="Optional soft dive context")
+    output.add_argument("--direction", choices=["forward", "back", "inward", "reverse"], help="Recorded context; image spin is inferred")
+    output.add_argument("--somersaults", type=float, help="Recorded context; does not force rotation")
     output.add_argument(
         "--output-dir",
         type=Path,
@@ -114,7 +118,8 @@ def main() -> None:
             last_update = now
 
     try:
-        tracks, analysis = tracker.process(args.video, calibration, progress)
+        tracks, analysis = tracker.process(args.video, calibration, progress,
+            context=DiveContext(args.position, args.direction, args.somersaults))
         print()
         stem = args.video.stem
         csv_path = args.output_dir / f"{stem}_kinematics.csv"
