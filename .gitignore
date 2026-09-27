@@ -26,10 +26,9 @@ __pycache__/
 # Dive footage can show real people, so recordings stay on the machine that made them
 recordings/
 api/uploads/
+api/local-data/
 samples/**/*.mp4
 samples/**/*.mov
 samples/**/*.webm
-
-# Generated at npm install time (model weights and MediaPipe wasm copied from node_modules)
-web/public/models/
-web/public/mediapipe/
+# Local YOLO weights are downloaded on first use
+api/*.pt

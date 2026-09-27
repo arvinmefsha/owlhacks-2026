@@ -5,10 +5,10 @@ import json
 import logging
 from typing import Literal
 
+from analysis.scoring import FAULT_TITLES
 from google import genai
 from pydantic import BaseModel, Field
 
-from analysis.scoring import FAULT_TITLES
 from feedback.catalog import catalog_by_id, load_catalog, workouts_for
 
 log = logging.getLogger(__name__)
@@ -73,7 +73,6 @@ CUES: dict[str, str] = {
     "bent_knees": "Lock the knees, point the toes.",
     "body_not_straight": "Stay long and tight through the flight.",
     "legs_apart": "Squeeze the ankles together.",
-    "flexed_feet": "Point the toes the whole way.",
     "entry_angle": "Line up straight before the water.",
     "under_rotation": "Kick out a little earlier and reach for the water.",
     "over_rotation": "Open up sooner and stop at vertical.",
@@ -143,18 +142,23 @@ def rule_based_feedback(analysis: dict) -> DiveFeedback:
 
 
 class GeminiCoach:
-    def __init__(self, api_key: str, model: str, timeout_s: float = 45.0):
-        self._client = genai.Client(api_key=api_key)
+    def __init__(self, api_key: str | None, model: str, timeout_s: float = 45.0):
+        self._client = genai.Client(api_key=api_key) if api_key else None
         self._api_key = api_key
         self.model = model
         self.timeout_s = timeout_s
 
     def describe_error(self, exc: Exception) -> str:
         """An exception summary that is safe to log."""
-        return f"{type(exc).__name__}: {str(exc).replace(self._api_key, '***')[:300]}"
+        message = str(exc)
+        if self._api_key:
+            message = message.replace(self._api_key, "***")
+        return f"{type(exc).__name__}: {message[:300]}"
 
     def feedback(self, analysis: dict, setup: dict) -> tuple[DiveFeedback, str]:
         """Feedback and its source ("gemini" or "rules" if the Gemini call failed)."""
+        if self._client is None:
+            return rule_based_feedback(analysis), "rules"
         try:
             return self._ask_feedback(analysis, setup), "gemini"
         except Exception as exc:  # network, quota, bad JSON: never lose the dive over feedback
@@ -162,6 +166,8 @@ class GeminiCoach:
             return rule_based_feedback(analysis), "rules"
 
     def _ask_feedback(self, analysis: dict, setup: dict) -> DiveFeedback:
+        if self._client is None:
+            raise RuntimeError("Gemini is not configured.")
         catalog = load_catalog()
         ids = [w["id"] for w in catalog]
         payload = _context(analysis, setup)
@@ -182,6 +188,8 @@ class GeminiCoach:
 
     def review_keyframes(self, analysis: dict, setup: dict, frames: list[tuple[str, bytes, str]]) -> VisionReview:
         """Ask Gemini to look at keyframes given as (label, image bytes, mime type). Raises on failure."""
+        if self._client is None:
+            raise RuntimeError("Gemini is not configured.")
         content: list[dict] = [{"type": "text", "text": VISION_PROMPT + "\n\n" + json.dumps(_context(analysis, setup))}]
         for label, image, mime in frames:
             content.append({"type": "text", "text": f"Frame: {label}"})

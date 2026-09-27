@@ -1,20 +1,18 @@
-"""MediaPipe Pose landmark indices and the combined body points the analysis uses."""
+"""COCO-17 pose indices and the combined body points used by dive analysis."""
 
 from dataclasses import dataclass
 
 import numpy as np
 
-NUM_LANDMARKS = 33
+NUM_LANDMARKS = 17
 
 NOSE = 0
-L_SHOULDER, R_SHOULDER = 11, 12
-L_ELBOW, R_ELBOW = 13, 14
-L_WRIST, R_WRIST = 15, 16
-L_HIP, R_HIP = 23, 24
-L_KNEE, R_KNEE = 25, 26
-L_ANKLE, R_ANKLE = 27, 28
-L_HEEL, R_HEEL = 29, 30
-L_FOOT, R_FOOT = 31, 32
+L_SHOULDER, R_SHOULDER = 5, 6
+L_ELBOW, R_ELBOW = 7, 8
+L_WRIST, R_WRIST = 9, 10
+L_HIP, R_HIP = 11, 12
+L_KNEE, R_KNEE = 13, 14
+L_ANKLE, R_ANKLE = 15, 16
 
 
 def center_of_mass(
@@ -23,29 +21,27 @@ def center_of_mass(
     knee: np.ndarray,
     ankle: np.ndarray,
     wrist: np.ndarray,
-    foot: np.ndarray,
 ) -> np.ndarray:
     """Whole-body centre of mass from segment masses (simplified Dempster proportions).
 
     In flight this point follows a true parabola whatever the body shape, unlike the hips.
-    Arms and feet fall back to the shoulder and ankle when they aren't tracked.
+    COCO-17 has no toe landmark, so the ankle represents the foot segment.
     """
     arms = np.where(np.isfinite(wrist), shoulder + 0.4 * (wrist - shoulder), shoulder)
-    feet = np.where(np.isfinite(foot), (ankle + foot) / 2, ankle)
     return (
         0.578 * (hip + 0.6 * (shoulder - hip))  # head and trunk
         + 0.100 * arms
         + 0.200 * (hip + 0.43 * (knee - hip))  # thighs
         + 0.093 * (knee + 0.43 * (ankle - knee))  # shanks
-        + 0.029 * feet
+        + 0.029 * ankle
     )
 
 
 def _weighted_mid(xy: np.ndarray, vis: np.ndarray, left: int, right: int) -> np.ndarray:
     """Visibility-weighted midpoint of a left/right pair.
 
-    From a side-on camera the two sides overlap, and the far side is the one MediaPipe
-    guesses, so squaring the visibility leans on the near side.
+    From a side-on camera the two sides overlap, so squaring confidence leans on the
+    side the detector can see most clearly.
     """
     pts = xy[:, [left, right], :]
     w = np.nan_to_num(vis[:, [left, right]], nan=0.0) ** 2
@@ -68,7 +64,6 @@ class Body:
     knee: np.ndarray
     ankle: np.ndarray
     wrist: np.ndarray
-    foot: np.ndarray
     l_ankle: np.ndarray
     r_ankle: np.ndarray
     com: np.ndarray
@@ -80,7 +75,6 @@ class Body:
         knee = _weighted_mid(xy, vis, L_KNEE, R_KNEE)
         ankle = _weighted_mid(xy, vis, L_ANKLE, R_ANKLE)
         wrist = _weighted_mid(xy, vis, L_WRIST, R_WRIST)
-        foot = _weighted_mid(xy, vis, L_FOOT, R_FOOT)
         return cls(
             t=t,
             nose=xy[:, NOSE, :],
@@ -89,12 +83,11 @@ class Body:
             knee=knee,
             ankle=ankle,
             wrist=wrist,
-            foot=foot,
             l_ankle=xy[:, L_ANKLE, :],
             r_ankle=xy[:, R_ANKLE, :],
-            com=center_of_mass(shoulder, hip, knee, ankle, wrist, foot),
+            com=center_of_mass(shoulder, hip, knee, ankle, wrist),
         )
 
     def extremities(self) -> list[np.ndarray]:
         """Points that can lead the entry: hands for head-first, feet for feet-first."""
-        return [self.nose, self.wrist, self.ankle, self.foot]
+        return [self.nose, self.wrist, self.ankle]

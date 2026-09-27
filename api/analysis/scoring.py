@@ -30,7 +30,6 @@ FAULT_TITLES: dict[str, str] = {
     "bent_knees": "Bent knees",
     "body_not_straight": "Body not straight in flight",
     "legs_apart": "Feet apart",
-    "flexed_feet": "Toes not pointed",
     "entry_angle": "Entry not vertical",
     "under_rotation": "Short of vertical at entry",
     "over_rotation": "Past vertical at entry",
@@ -114,8 +113,6 @@ def specs_for(position: str, apparatus: str, head_first: bool) -> list[Spec]:
     specs += [
         Spec("leg_split_pct", "Feet together", "flight", "% of leg length", 15, 50, 0.75,
              "legs_apart", "15% or less"),
-        Spec("toe_point_deg", "Pointed toes (knee-ankle-toe angle)", "flight", "°", 150, 110, 0.75,
-             "flexed_feet", "150° or more"),
         Spec("entry_angle_deg", "Entry angle from vertical", "entry", "°", 5, 30, 2.0,
              "entry_angle", "within 5° of vertical"),
         Spec("entry_body_line_deg", "Straight body at entry", "entry", "°", 170, 140, 1.5,

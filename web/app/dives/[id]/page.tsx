@@ -7,7 +7,7 @@ import { use, useEffect, useMemo, useRef, useState } from "react";
 import { UploadVideoPlayer } from "@/components/UploadVideoPlayer";
 import { LineChart } from "@/components/LineChart";
 import { api, describeDive, type Dive, type Metric, type Phase, type VisionReview, type Workout } from "@/lib/api";
-import { drawPose, renderOverlay } from "@/lib/pose";
+import { drawPose } from "@/lib/pose-drawing";
 
 const PHASES: Phase[] = ["takeoff", "flight", "entry"];
 
@@ -75,9 +75,7 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold capitalize">{describeDive(dive.setup)}</h1>
-          <p className="text-sm text-slate-500">
-            {dive.diver_name} · {new Date(dive.recorded_at).toLocaleString()}
-          </p>
+          <p className="text-sm text-slate-500">{new Date(dive.recorded_at).toLocaleString()}</p>
         </div>
         <div className="flex items-center gap-6">
           <div className="text-center">
@@ -262,49 +260,11 @@ function MetricTable({ phase, metrics, onSeek }: { phase: Phase; metrics: Metric
 }
 
 function DiveVideo({ dive, videoRef }: { dive: Dive; videoRef: React.RefObject<HTMLVideoElement | null> }) {
-  return dive.source === "upload" ? <UploadedDiveVideo dive={dive} videoRef={videoRef} /> : <LiveDiveVideo dive={dive} videoRef={videoRef} />;
-}
-
-function UploadedDiveVideo({ dive, videoRef }: { dive: Dive; videoRef: React.RefObject<HTMLVideoElement | null> }) {
   const frames = useMemo(() => dive.frames.t.map((t, index) => {
     const flat = dive.frames.lm[index];
-    return { t, lm: flat ? Array.from({ length: 33 }, (_, i) => flat.slice(i * 4, i * 4 + 4)) : null };
+    return { t, lm: flat ? Array.from({ length: 17 }, (_, i) => flat.slice(i * 4, i * 4 + 4)) : null };
   }), [dive.frames]);
   return <UploadVideoPlayer src={`/api/dives/${dive.id}/video`} frames={frames} calibration={dive.calibration} videoRef={videoRef} />;
-}
-
-function LiveDiveVideo({ dive, videoRef }: { dive: Dive; videoRef: React.RefObject<HTMLVideoElement | null> }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-    let handle = 0;
-    const draw = () => {
-      const lm = dive.frames.lm[nearestFrame(dive.frames.t, video.currentTime)] ?? null;
-      renderOverlay(canvas, video, dive.calibration, lm);
-    };
-    const loop = () => {
-      draw();
-      handle = video.requestVideoFrameCallback(loop);
-    };
-    handle = video.requestVideoFrameCallback(loop);
-    video.addEventListener("seeked", draw);
-    video.addEventListener("loadeddata", draw);
-    return () => {
-      video.cancelVideoFrameCallback(handle);
-      video.removeEventListener("seeked", draw);
-      video.removeEventListener("loadeddata", draw);
-    };
-  }, [dive, videoRef]);
-
-  return (
-    <div className="relative w-full overflow-hidden rounded-lg bg-black" style={{ aspectRatio: `${dive.video_width} / ${dive.video_height}` }}>
-      <video ref={videoRef} src={`/api/dives/${dive.id}/video`} className="absolute inset-0 h-full w-full" controls playsInline muted preload="auto" />
-      <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
-    </div>
-  );
 }
 
 async function captureKeyframe(video: HTMLVideoElement, dive: Dive, t: number): Promise<Blob> {
@@ -319,7 +279,7 @@ async function captureKeyframe(video: HTMLVideoElement, dive: Dive, t: number): 
   const ctx = canvas.getContext("2d")!;
   ctx.drawImage(video, 0, 0);
   const lm = dive.frames.lm[nearestFrame(dive.frames.t, t)];
-  if (lm) drawPose(ctx, lm);
+  if (lm) drawPose(ctx, Array.from({ length: 17 }, (_, index) => lm.slice(index * 4, index * 4 + 4)), dive.calibration.water_y);
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Capture failed"))), "image/jpeg", 0.85));
 }
 

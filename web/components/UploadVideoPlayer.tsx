@@ -2,44 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Calibration, Point, PoseFrame } from "@/lib/api";
-import { drawCalibration } from "@/lib/pose";
-import { frameIndexAt } from "@/lib/upload-track-math";
+import { drawCalibration, drawPose, frameIndexAt } from "@/lib/pose-drawing";
 
-const CONNECTIONS = [[11,12],[11,13],[13,15],[12,14],[14,16],[15,17],[15,19],[15,21],[16,18],[16,20],[16,22],[11,23],[12,24],[23,24],[23,25],[25,27],[27,29],[29,31],[27,31],[24,26],[26,28],[28,30],[30,32],[28,32]];
 const button = "min-h-11 rounded-lg border border-slate-300 px-3 text-sm font-medium hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-800";
-
-/** Upload-only renderer: uncertain and short-gap estimated joints are amber/dashed. */
-export function drawUploadPose(ctx: CanvasRenderingContext2D, pose: number[][] | null, waterY: number | null = null) {
-  if (!pose) return;
-  const { width, height } = ctx.canvas;
-  const scale = Math.max(2, width / 550);
-  ctx.save(); ctx.lineWidth = scale; ctx.lineCap = "round";
-  for (const [a, b] of CONNECTIONS) {
-    const p = pose[a], q = pose[b];
-    if (Math.min(p[3], q[3]) < 0.15) continue;
-    if (waterY !== null && p[1] >= waterY && q[1] >= waterY) continue;
-    const confident = Math.min(p[3], q[3]) >= 0.5;
-    ctx.strokeStyle = confident ? "#22d3ee" : "#fbbf24";
-    ctx.setLineDash(confident ? [] : [scale * 2, scale * 2]);
-    let ax = p[0], ay = p[1], bx = q[0], by = q[1];
-    if (waterY !== null && (ay >= waterY || by >= waterY)) {
-      const fraction = (waterY - ay) / (by - ay);
-      const ix = ax + (bx - ax) * fraction;
-      if (ay >= waterY) { ax = ix; ay = waterY; } else { bx = ix; by = waterY; }
-    }
-    ctx.beginPath(); ctx.moveTo(ax * width, ay * height); ctx.lineTo(bx * width, by * height); ctx.stroke();
-  }
-  ctx.setLineDash([]);
-  for (let i = 0; i < pose.length; i++) {
-    if (i > 0 && i < 11) continue;
-    const [x, y, , confidence] = pose[i];
-    if (confidence < 0.15 || (waterY !== null && y >= waterY)) continue;
-    ctx.beginPath(); ctx.arc(x * width, y * height, scale * 1.6, 0, Math.PI * 2);
-    ctx.fillStyle = confidence >= 0.5 ? "#22d3ee" : "#fbbf24";
-    ctx.fill(); ctx.strokeStyle = "#0f172a"; ctx.stroke();
-  }
-  ctx.restore();
-}
 
 export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, videoRef: externalRef, pickLabel, onPick, marker, markers = EMPTY_MARKERS }: {
   src: string; frames?: PoseFrame[]; calibration: Calibration;
@@ -72,7 +37,7 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       drawCalibration(ctx, calibration);
-      if (overlay) drawUploadPose(ctx, frames[frameIndexAt(times, timestamp)]?.lm ?? null, calibration.water_y);
+      if (overlay) drawPose(ctx, frames[frameIndexAt(times, timestamp)]?.lm ?? null, calibration.water_y);
       if (marker) {
         ctx.strokeStyle = "#f472b6"; ctx.lineWidth = Math.max(2, canvas.width / 400);
         ctx.beginPath(); ctx.arc(marker.x * canvas.width, marker.y * canvas.height, canvas.width / 60, 0, Math.PI * 2); ctx.stroke();
@@ -134,7 +99,7 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
           onError={() => setError("This video could not be opened. Try an H.264 MP4 file.")}
         />
         <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true" />
-        {onPick && <button type="button" aria-label={pickLabel ?? "Select diver position"}
+        {onPick && <button type="button" aria-label={pickLabel ?? "Select video position"}
           className="absolute inset-0 cursor-crosshair focus-visible:outline-4 focus-visible:outline-sky-500"
           onClick={(e) => {
             if (e.detail === 0) { onPick({ x: point.x / 100, y: point.y / 100 }); return; }

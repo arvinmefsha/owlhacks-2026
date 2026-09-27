@@ -1,6 +1,6 @@
 import pytest
-
 from analysis import AnalysisError, analyze_dive
+
 from tests.synthetic import HEIGHT, WIDTH, DiveSpec, generate
 
 TUCK_103C = {"position": "tuck", "direction": "forward", "somersaults": 1.5, "apparatus": "springboard", "board_height_m": 1.0}
@@ -33,17 +33,18 @@ def test_good_tuck_dive_matches_ground_truth():
     assert phases["apex"] == pytest.approx(truth["apex"], abs=0.05)
     assert phases["entry"] == pytest.approx(truth["contact"], abs=0.05)
     assert phases["entry_method"] == "water_line"
+    assert result["scale"]["source"] == "board_to_water"
+    assert result["scale"]["px_per_m"] == pytest.approx(160, abs=0.1)
 
     assert metric(result, "jump_height_m")["value"] == pytest.approx(truth["jump_height_m"], abs=0.08)
     assert metric(result, "min_hip_angle")["value"] == pytest.approx(55, abs=6)
     assert metric(result, "position_knee_angle")["value"] == pytest.approx(50, abs=8)
     assert metric(result, "entry_angle_deg")["value"] < 6
-    assert metric(result, "toe_point_deg")["value"] > 160
     assert result["head_first"] is True
     assert result["rotation"]["measured_deg"] == pytest.approx(530, abs=25)
 
     assert result["scores"]["overall"] >= 8.0
-    assert not {"low_height", "loose_position", "under_rotation", "flexed_feet"} & fault_ids(result)
+    assert not {"low_height", "loose_position", "under_rotation"} & fault_ids(result)
     assert result["warnings"] == []
 
 
@@ -52,7 +53,7 @@ def test_sloppy_dive_produces_the_expected_faults():
     result, _ = run(spec, TUCK_103C)
 
     faults = fault_ids(result)
-    assert {"low_height", "loose_position", "flexed_feet", "under_rotation", "entry_arms", "legs_apart"} <= faults
+    assert {"low_height", "loose_position", "under_rotation", "entry_arms", "legs_apart"} <= faults
     assert result["scores"]["overall"] < 6.0
     impacts = [f["impact"] for f in result["faults"]]
     assert impacts == sorted(impacts, reverse=True)
@@ -80,11 +81,11 @@ def test_floor_jump_without_calibration_uses_landing():
     assert any("water line" in w for w in result["warnings"])
 
 
-def test_missing_height_is_flagged():
+def test_missing_scale_uses_approximation():
     frames, truth = generate(DiveSpec())
     result = analyze_dive(frames, WIDTH, HEIGHT, TUCK_103C, {"water_y": truth["water_y"]}, height_cm=None)
     assert result["scale"]["source"] == "default_height"
-    assert any("height" in w for w in result["warnings"])
+    assert any("approximate body scale" in warning for warning in result["warnings"])
 
 
 def test_no_pose_raises_a_clear_error():

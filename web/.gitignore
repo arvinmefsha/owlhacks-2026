@@ -34,10 +34,6 @@ yarn-error.log*
 .env*
 !.env.example
 
-# MediaPipe wasm and pose models, copied or downloaded by scripts/setup-assets.mjs
-/public/mediapipe/
-/public/models/
-
 # vercel
 .vercel
 

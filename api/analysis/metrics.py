@@ -85,7 +85,7 @@ def compute_metrics(
     if board_tip_px is not None:
         late = flight[flight >= to + int(CLEARANCE_SKIP_S * fs)]
         if late.size:
-            gaps = np.stack([distance(p[late], board_tip_px) for p in (body.nose, body.wrist, body.foot)])
+            gaps = np.stack([distance(p[late], board_tip_px) for p in (body.nose, body.wrist, body.ankle)])
             closest_per_frame = np.fmin.reduce(gaps, axis=0)
             if np.isfinite(closest_per_frame).any():
                 closest = int(np.nanargmin(closest_per_frame))
@@ -104,7 +104,6 @@ def compute_metrics(
         leg_len = nanmedian(distance(body.hip, body.knee) + distance(body.knee, body.ankle))
         split = distance(body.l_ankle[flight], body.r_ankle[flight]) / leg_len
         out.put("leg_split_pct", 100 * nanmedian(split), t[apex])
-        out.put("toe_point_deg", nanmedian(angle_at(body.knee, body.ankle, body.foot)[flight]), t[apex])
 
     # Rotation of the torso from takeoff to entry, signed (clockwise on screen is positive).
     span = np.arange(to, contact + 1)

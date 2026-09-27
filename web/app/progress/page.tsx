@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { DiverPicker, useSelectedDiver } from "@/components/DiverPicker";
 import { LineChart } from "@/components/LineChart";
 import { api, describeDive, type Progress } from "@/lib/api";
 
@@ -18,7 +17,6 @@ const LABELS: Record<string, string> = {
   takeoff_knee_angle: "Knee extension at takeoff (°)",
   takeoff_hip_angle: "Hip extension at takeoff (°)",
   entry_body_line_deg: "Body line at entry (°)",
-  toe_point_deg: "Toe point (°)",
   flight_time_s: "Flight time (s)",
   rotation_deg: "Total rotation (°)",
 };
@@ -27,30 +25,25 @@ const label = (metric: string) => LABELS[metric] ?? metric.replaceAll("_", " ");
 const day = (x: number) => new Date(x).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 export default function ProgressPage() {
-  const [diverId, setDiverId] = useSelectedDiver();
   const [progress, setProgress] = useState<Progress | null>(null);
   const [metric, setMetric] = useState("score_overall");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!diverId) return;
-    api<Progress>(`/progress?diver_id=${diverId}`)
+    api<Progress>("/progress")
       .then((p) => {
         setProgress(p);
         setError("");
       })
       .catch((e: Error) => setError(e.message));
-  }, [diverId]);
+  }, []);
 
   const metrics = progress ? [...new Set(progress.daily.map((d) => d.metric))].sort((a, b) => label(a).localeCompare(label(b))) : [];
   const daily = progress?.daily.filter((d) => d.metric === metric) ?? [];
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <h1 className="text-xl font-semibold">Progress</h1>
-        <DiverPicker value={diverId} onChange={setDiverId} />
-      </div>
+      <h1 className="text-xl font-semibold">Progress</h1>
       {error && <p className="text-red-600">{error}</p>}
 
       {progress && progress.dives.length === 0 && (
