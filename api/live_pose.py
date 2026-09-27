@@ -1,24 +1,28 @@
 """Single-frame YOLO pose for the live session's dive trigger.
 
-A small pose model of its own, separate from the analysis worker's, so live frames never wait
-behind a full-dive analysis. Ultralytics and torch are imported on first use, so the API runs
-(and its tests pass) without them.
+A small pose model of its own, separate from the analysis worker's, so live frames wait at most
+for the worker's current YOLO call, never for a whole dive. Ultralytics and torch are imported on
+first use, so the API runs (and its tests pass) without them.
 """
 
 import logging
-from threading import Lock
 from time import perf_counter
 from typing import Any
 
 import cv2
 import numpy as np
 from config import Settings
+from diving_tracker.backend import INFERENCE_LOCK
 
 log = logging.getLogger(__name__)
 
 
 class LivePoseUnavailable(RuntimeError):
-    """The YOLO stack is not installed or the live pose model could not be loaded."""
+    """The YOLO stack is not installed, or the live pose model could not be loaded or run."""
+
+
+class FrameDecodeError(ValueError):
+    """The uploaded bytes are not a decodable image."""
 
 
 def _numpy(values: Any) -> np.ndarray:
@@ -56,13 +60,13 @@ class LivePoseDetector:
         self.settings = settings
         self._model: Any = None
         self._device: str | None = None
-        self._lock = Lock()
+        self._worked = False
 
     def _load(self) -> None:
         try:
             import torch
             from ultralytics import YOLO
-        except ImportError:
+        except (ImportError, OSError):  # a broken torch install on Windows fails with OSError (missing DLL)
             raise LivePoseUnavailable(
                 "Live pose detection needs the YOLO stack (ultralytics and torch). "
                 "Install diving_cv's dependencies into the API environment and restart the API."
@@ -82,25 +86,36 @@ class LivePoseDetector:
     def detect(self, image_bytes: bytes) -> dict:
         """Pose of the most confident person in one JPEG, PNG or WebP frame.
 
-        Raises ValueError if the bytes are not a decodable image and LivePoseUnavailable if
-        the model cannot be loaded.
+        Raises FrameDecodeError if the bytes are not a decodable image, and LivePoseUnavailable if
+        the model cannot be loaded or fails before it has ever worked (a setup problem such as an
+        invalid YOLO_DEVICE). Later failures propagate unchanged, as they may be transient.
         """
         try:
             frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR) if image_bytes else None
         except cv2.error:
             frame = None
         if frame is None:
-            raise ValueError("The frame could not be decoded as an image.")
-        with self._lock:
+            raise FrameDecodeError("The frame could not be decoded as an image.")
+        # Shared with the analysis worker; parsing copies tensors off the GPU, so it stays inside too.
+        with INFERENCE_LOCK:
             if self._model is None:
                 self._load()
             started = perf_counter()
-            result = self._model.predict(
-                source=frame,
-                imgsz=self.settings.live_pose_size,
-                classes=[0],
-                device=self._device,
-                verbose=False,
-            )[0]
+            try:
+                result = self._model.predict(
+                    source=frame,
+                    imgsz=self.settings.live_pose_size,
+                    classes=[0],
+                    device=self._device,
+                    verbose=False,
+                )[0]
+                parsed = parse_pose_result(result)
+            except Exception as exc:
+                if self._worked:
+                    raise
+                reason = f"{type(exc).__name__}: {str(exc)[:200]}"
+                log.warning("The live pose model failed on its first frame (%s)", reason)
+                raise LivePoseUnavailable(f"Live pose detection could not run on device {self._device} ({reason}).") from None
             elapsed_ms = (perf_counter() - started) * 1000
-        return {**parse_pose_result(result), "inference_ms": round(elapsed_ms, 1)}
+            self._worked = True
+        return {**parsed, "inference_ms": round(elapsed_ms, 1)}

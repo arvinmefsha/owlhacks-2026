@@ -1,17 +1,23 @@
+import contextlib
 import json
 import logging
 import sys
+import threading
+import time
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
 import cv2
 import httpx
+import live_pose as live_pose_module
 import main
 import numpy as np
 import pytest
 from analysis import analyze_dive
 from config import Settings, get_settings
+from diving_tracker import backend as backend_module
+from diving_tracker.backend import BackendConfig, UltralyticsTopDownBackend
 from fastapi.testclient import TestClient
 from feedback import speech as speech_module
 from feedback.gemini import CUES, LIVE_TIP_INSTRUCTION, GeminiCoach, LiveTip, rule_based_tip
@@ -145,6 +151,49 @@ def test_detector_without_ultralytics_is_unavailable(monkeypatch, tmp_path):
         LivePoseDetector(make_settings(tmp_path)).detect(JPEG)
 
 
+def test_a_broken_torch_install_is_unavailable_not_a_crash(monkeypatch, tmp_path):
+    class MissingDll:
+        def find_spec(self, name, path=None, target=None):
+            if name == "torch":
+                raise OSError("[WinError 126] Error loading fbgemm.dll")
+            return None
+
+    monkeypatch.delitem(sys.modules, "torch", raising=False)
+    monkeypatch.setattr(sys, "meta_path", [MissingDll(), *sys.meta_path])
+    with pytest.raises(LivePoseUnavailable, match="YOLO stack"):
+        LivePoseDetector(make_settings(tmp_path)).detect(JPEG)
+
+
+class ScriptedModel:
+    """Returns a person, or raises, following the given script (one entry per predict call)."""
+
+    def __init__(self, *script):
+        self.script = list(script)
+
+    def predict(self, **_):
+        step = self.script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return [fake_result([0.9], [[[0.5, 0.5]] * 17], [[0.8] * 17], [[0.1, 0.1, 0.9, 0.9]])]
+
+
+def test_a_model_that_fails_on_its_first_frame_stops_the_session_with_the_reason(client, tmp_path):
+    detector = LivePoseDetector(make_settings(tmp_path))
+    detector._model, detector._device = ScriptedModel(ValueError("Invalid CUDA 'device=cuda:0' requested.")), "cuda:0"
+    main.app.state.live_pose = detector
+    response = post_frame(client)
+    assert response.status_code == 503
+    assert "cuda:0" in response.json()["detail"] and "Invalid CUDA" in response.json()["detail"]
+
+
+def test_a_failure_after_the_model_has_worked_is_not_reported_as_a_setup_problem(tmp_path):
+    detector = LivePoseDetector(make_settings(tmp_path))
+    detector._model, detector._device = ScriptedModel("ok", RuntimeError("temporary glitch")), "mps"
+    assert detector.detect(JPEG)["person"] is True
+    with pytest.raises(RuntimeError, match="temporary glitch"):
+        detector.detect(JPEG)
+
+
 def fake_result(conf, points, point_conf, boxes):
     return SimpleNamespace(
         boxes=SimpleNamespace(conf=np.array(conf), xyxyn=np.array(boxes)),
@@ -204,6 +253,104 @@ def test_detector_loads_once_and_predicts_people_only(monkeypatch, tmp_path):
     pinned = LivePoseDetector(make_settings(tmp_path, yolo_device="cuda:1", live_pose_size=320))
     pinned.detect(JPEG)
     assert calls[-1]["device"] == "cuda:1" and calls[-1]["imgsz"] == 320
+
+
+class FakeGpu:
+    """Stands in for the GPU: flags any moment two threads use it at once, which is what crashes MPS."""
+
+    def __init__(self):
+        self.active, self.uses, self.overlapped = 0, 0, False
+        self._guard = threading.Lock()
+
+    def use(self, seconds: float) -> None:
+        with self._guard:
+            self.active += 1
+            self.uses += 1
+            self.overlapped |= self.active > 1
+        time.sleep(seconds)
+        with self._guard:
+            self.active -= 1
+
+
+class GpuTensor:
+    def __init__(self, gpu: FakeGpu, values):
+        self.gpu, self.values = gpu, np.asarray(values, dtype=float)
+
+    def cpu(self):
+        self.gpu.use(0.001)
+        return self
+
+    def numpy(self):
+        return self.values
+
+    def __len__(self):
+        return len(self.values)
+
+
+class GpuBoxes:
+    def __init__(self, gpu: FakeGpu):
+        self.xyxy = GpuTensor(gpu, [[10, 10, 60, 90]])
+        self.xyxyn = GpuTensor(gpu, [[0.1, 0.1, 0.6, 0.9]])
+        self.conf = GpuTensor(gpu, [0.9])
+
+    def __len__(self):
+        return 1
+
+
+class GpuModel:
+    def __init__(self, gpu: FakeGpu):
+        self.gpu = gpu
+
+    def predict(self, **_):
+        self.gpu.use(0.004)
+        keypoints = SimpleNamespace(
+            xy=GpuTensor(self.gpu, [[[30, 50]] * 17]),
+            xyn=GpuTensor(self.gpu, [[[0.3, 0.5]] * 17]),
+            conf=GpuTensor(self.gpu, [[0.8] * 17]),
+        )
+        return [SimpleNamespace(boxes=GpuBoxes(self.gpu), keypoints=keypoints)]
+
+
+def run_live_pose_beside_analysis(tmp_path) -> FakeGpu:
+    gpu = FakeGpu()
+    analysis = UltralyticsTopDownBackend.__new__(UltralyticsTopDownBackend)
+    analysis.config = BackendConfig(device="mps")
+    analysis.detector = analysis.pose = GpuModel(gpu)
+    live = LivePoseDetector(make_settings(tmp_path))
+    live._model, live._device = GpuModel(gpu), "mps"
+    frame = np.zeros((100, 100, 3), np.uint8)
+    errors: list[BaseException] = []
+
+    def repeat(call):
+        try:
+            for _ in range(20):
+                call()
+        except BaseException as exc:  # a thread's exception would otherwise vanish
+            errors.append(exc)
+
+    workers = [
+        threading.Thread(target=repeat, args=(lambda: analysis.detect(frame, (0, 0, 100, 100), None),)),
+        threading.Thread(target=repeat, args=(lambda: analysis.estimate_pose(frame, np.array([20.0, 20.0, 70.0, 90.0]), 0.9),)),
+        threading.Thread(target=repeat, args=(lambda: live.detect(JPEG),)),
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert errors == []
+    return gpu
+
+
+def test_live_pose_and_analysis_never_use_the_gpu_at_the_same_time(tmp_path):
+    gpu = run_live_pose_beside_analysis(tmp_path)
+    assert gpu.uses > 0
+    assert not gpu.overlapped
+
+
+def test_without_the_shared_lock_the_overlap_is_detected(monkeypatch, tmp_path):
+    monkeypatch.setattr(backend_module, "INFERENCE_LOCK", contextlib.nullcontext())
+    monkeypatch.setattr(live_pose_module, "INFERENCE_LOCK", contextlib.nullcontext())
+    assert run_live_pose_beside_analysis(tmp_path).overlapped
 
 
 # Tip

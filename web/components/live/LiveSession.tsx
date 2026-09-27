@@ -33,6 +33,8 @@ const NOTICE_MS = 2000;
 const WALK_AWAY_S = 5;
 const POSE_MAX_WIDTH = 480;
 const MIN_WATER_GAP = 0.03;
+// The analysis rejects a marker exactly on the right or bottom edge as outside the frame.
+const MAX_TAP = 0.999;
 const POLL_MS = 1000;
 const RETRY_MS = 1000;
 const RECORDING_TYPES = ["video/mp4", "video/webm;codecs=vp9", "video/webm"];
@@ -49,7 +51,7 @@ const primaryButton = `min-h-11 rounded-lg bg-sky-700 px-4 py-2 text-sm font-sem
 const secondaryButton = `min-h-11 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800 ${focusRing}`;
 const stopButton = `min-h-11 rounded-lg border border-red-600 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950 ${focusRing}`;
 
-export function LiveSession({ setup }: { setup: DiveSetup }) {
+export function LiveSession({ setup, onActiveChange }: { setup: DiveSetup; onActiveChange?: (active: boolean) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -67,10 +69,39 @@ export function LiveSession({ setup }: { setup: DiveSetup }) {
   const [error, setError] = useState("");
   const [dives, setDives] = useState<LiveDive[]>([]);
   const [replayNumber, setReplayNumber] = useState<number | null>(null);
+  const cameraOn = CAMERA_PHASES.includes(phase);
 
   useEffect(() => {
     setupRef.current = setup;
   }, [setup]);
+
+  useEffect(() => {
+    onActiveChange?.(cameraOn);
+  }, [cameraOn, onActiveChange]);
+
+  // Nobody touches the laptop during a session; without this the display sleeps and the browser throttles detection.
+  useEffect(() => {
+    if (!cameraOn || !("wakeLock" in navigator)) return;
+    let lock: WakeLockSentinel | null = null;
+    let released = false;
+    const request = async () => {
+      if (released || document.visibilityState !== "visible") return;
+      try {
+        lock = await navigator.wakeLock.request("screen");
+        if (released) void lock.release();
+      } catch {
+        lock = null;
+      }
+    };
+    const onVisibility = () => void request();
+    void request();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      released = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      void lock?.release();
+    };
+  }, [cameraOn]);
 
   useEffect(() => () => {
     const session = sessionRef.current;
@@ -201,6 +232,12 @@ export function LiveSession({ setup }: { setup: DiveSetup }) {
         return;
       }
       streamRef.current = stream;
+      // "ended" never fires for our own track.stop(), only when the camera goes away underneath us.
+      stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (sessionRef.current !== session || !session.live) return;
+        stop();
+        setError("The camera stopped (it was unplugged or another app took it), so the session ended.");
+      });
       const video = videoRef.current;
       if (!video) throw new Error("the preview is not ready.");
       video.srcObject = stream;
@@ -238,7 +275,7 @@ export function LiveSession({ setup }: { setup: DiveSetup }) {
   function tap(event: React.MouseEvent<HTMLButtonElement>) {
     if (event.detail === 0) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const point: Point = { x: clamp01((event.clientX - rect.left) / rect.width), y: clamp01((event.clientY - rect.top) / rect.height) };
+    const point: Point = { x: clampTap((event.clientX - rect.left) / rect.width), y: clampTap((event.clientY - rect.top) / rect.height) };
     if (calibrationStep === "board") {
       setCalibration({ board_tip: point, water_y: null, roi: null });
       setCalibrationStep("water");
@@ -373,7 +410,6 @@ export function LiveSession({ setup }: { setup: DiveSetup }) {
     }
   }
 
-  const cameraOn = CAMERA_PHASES.includes(phase);
   const analyzing = dives.filter((dive) => dive.status === "analyzing");
   const replay = phase === "armed" ? dives.find((dive) => dive.number === replayNumber) : undefined;
   const split = Boolean(replay?.dive);
@@ -484,8 +520,8 @@ export function LiveSession({ setup }: { setup: DiveSetup }) {
   );
 }
 
-function clamp01(value: number) {
-  return Math.max(0, Math.min(1, value));
+function clampTap(value: number) {
+  return Math.max(0, Math.min(MAX_TAP, value));
 }
 
 function stopStream(stream: MediaStream | null) {

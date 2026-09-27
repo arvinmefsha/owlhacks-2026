@@ -33,6 +33,7 @@ export default function RecordPage() {
   const [calibration, setCalibration] = useState<Calibration>({ board_tip: null, water_y: null, roi: null });
   const [tapMode, setTapMode] = useState<TapMode>(null);
   const [mode, setMode] = useState<"live" | "upload">("live");
+  const [liveActive, setLiveActive] = useState(false);
   const [job, setJob] = useState<AnalysisJob | null>(null);
   const [error, setError] = useState("");
 
@@ -84,13 +85,14 @@ export default function RecordPage() {
       <section className="space-y-3">
         <div className="flex gap-2">
           {(["live", "upload"] as const).map((item) => (
-            <button key={item} onClick={() => setMode(item)} disabled={disabled}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium ${mode === item ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "bg-slate-100 dark:bg-slate-800"}`}>
+            <button key={item} onClick={() => setMode(item)} disabled={disabled || liveActive}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-60 ${mode === item ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "bg-slate-100 dark:bg-slate-800"}`}>
               {item === "live" ? "Live session" : "Upload video"}
             </button>
           ))}
         </div>
-        {mode === "live" ? <LiveSession setup={setup} /> : <UploadCapture {...captureProps} />}
+        {liveActive && <p className="text-xs text-slate-500">Stop the live session to switch to uploading a video.</p>}
+        {mode === "live" ? <LiveSession setup={setup} onActiveChange={setLiveActive} /> : <UploadCapture {...captureProps} />}
         {job && disabled && (
           <div className="space-y-2 rounded-lg border border-sky-300 bg-sky-50 p-4 dark:border-sky-800 dark:bg-sky-950" role="status">
             <div className="flex justify-between text-sm"><span>{job.stage}</span><span>{Math.round(job.progress * 100)}%</span></div>

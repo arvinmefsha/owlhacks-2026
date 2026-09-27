@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile
 from feedback.speech import SpeechClient, SpeechError
-from live_pose import LivePoseDetector, LivePoseUnavailable
+from live_pose import FrameDecodeError, LivePoseDetector, LivePoseUnavailable
 from pydantic import BaseModel, Field, StringConstraints
 
 log = logging.getLogger("api.live")
@@ -53,7 +53,7 @@ def live_pose(request: Request, frame: Annotated[UploadFile, File(description="O
         raise HTTPException(413, "Each frame must be under 1 MB.")
     try:
         return _live_pose(request).detect(data)
-    except ValueError:
+    except FrameDecodeError:
         raise HTTPException(415, "The frame could not be read as an image.") from None
     except LivePoseUnavailable as exc:
         raise HTTPException(503, str(exc)) from None

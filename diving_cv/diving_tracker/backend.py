@@ -1,10 +1,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import wraps
+from threading import RLock
 
 import numpy as np
 
 from .models import PoseMeasurement
+
+# Every YOLO call in the process, including reading results back with .cpu(), holds this lock.
+# Apple's Metal backend (MPS) aborts the whole process when two threads encode GPU work at once,
+# and the API runs live-session pose detection alongside the analysis worker.
+INFERENCE_LOCK = RLock()
+
+
+def _serialized(method):
+    @wraps(method)
+    def locked(*args, **kwargs):
+        with INFERENCE_LOCK:
+            return method(*args, **kwargs)
+
+    return locked
 
 
 def box_iou(a: np.ndarray, b: np.ndarray) -> float:
@@ -72,6 +88,7 @@ class UltralyticsTopDownBackend:
         self.detector = YOLO(config.detector_model)
         self.pose = YOLO(config.pose_model)
 
+    @_serialized
     def detect(
         self,
         frame: np.ndarray,
@@ -120,6 +137,7 @@ class UltralyticsTopDownBackend:
         index = int(np.argmax(ranks))
         return boxes[index], float(scores[index])
 
+    @_serialized
     def estimate_pose(
         self, frame: np.ndarray, detection_box: np.ndarray, detection_confidence: float,
         rotation: int = 0, padding: float | None = None,
