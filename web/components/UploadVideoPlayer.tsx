@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Calibration, Point, PoseFrame } from "@/lib/api";
+import { exportAnnotatedVideo, type ExportMode } from "@/lib/export-video";
 import { drawCalibration, drawPose, frameIndexAt } from "@/lib/pose-drawing";
 import { synchronizeVideo } from "@/lib/video-sync";
 
@@ -23,6 +24,8 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
   const [overlay, setOverlay] = useState(true);
   const [aspect, setAspect] = useState("16 / 9");
   const [error, setError] = useState("");
+  const [exportMode, setExportMode] = useState<ExportMode | null>(null);
+  const [exportProgress, setExportProgress] = useState(0);
   const [point, setPoint] = useState({ x: 50, y: 50 });
   const times = useMemo(() => frames.map((f) => f.t), [frames]);
 
@@ -68,7 +71,31 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
     try { if (video.paused) await video.play(); else video.pause(); }
     catch { setError("Playback could not start. Try another video format."); }
   }
+  async function download(mode: ExportMode) {
+    const video = videoRef.current;
+    if (!video || !frames.length || exportMode) return;
+    const restoreTime = video.currentTime;
+    video.pause();
+    setExportMode(mode);
+    setExportProgress(0);
+    setError("");
+    try {
+      const { blob, extension } = await exportAnnotatedVideo(video, frames, calibration, mode, setExportProgress);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = mode === "overlay" ? `dive-skeleton.${extension}` : `dive-skeleton-black.${extension}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The download failed.");
+    } finally {
+      if (Number.isFinite(restoreTime)) video.currentTime = restoreTime;
+      setExportMode(null);
+    }
+  }
   const index = frameIndexAt(times, time);
+  const exporting = exportMode !== null;
   return (
     <section className="overflow-hidden rounded-xl border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-950" aria-label="Dive video review">
       <div className="relative bg-black" style={{ aspectRatio: aspect }}>
@@ -113,10 +140,12 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
             </select>
           </label>
           {frames.length > 0 && <button className={button} aria-pressed={overlay} onClick={() => setOverlay(!overlay)}>{overlay ? "Hide" : "Show"} skeleton</button>}
+          {frames.length > 0 && <button className={button} disabled={!duration || exporting} onClick={() => void download("overlay")}>{exportMode === "overlay" ? `Downloading ${Math.round(exportProgress * 100)}%` : "Download skeleton on video"}</button>}
+          {frames.length > 0 && <button className={button} disabled={!duration || exporting} onClick={() => void download("black")}>{exportMode === "black" ? `Downloading ${Math.round(exportProgress * 100)}%` : "Download skeleton on black"}</button>}
         </div>
         {markers.length > 0 && <div className="flex flex-wrap gap-2">{markers.map((mark) => <button key={mark.label} className={button} onClick={() => seek(mark.time)}>{mark.label} · {mark.time.toFixed(2)} s</button>)}</div>}
         <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">Drag to scrub. Use ← / → on the timeline to step through {frames.length ? "tracked frames" : "the preview"}.
-          {frames.length > 0 && " Solid cyan: visible joints. Dashed amber: uncertain or briefly estimated joints."}</p>
+          {frames.length > 0 && " Solid cyan: visible joints. Dashed amber: uncertain or briefly estimated joints. Downloads play back at the tracked frame times: skeleton on the dive, or skeleton, waterline, and board line on black."}</p>
         {onPick && <fieldset className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-100 p-3 dark:bg-slate-800">
           <legend className="text-sm font-medium">{pickLabel} — click the image or enter a position</legend>
           {(["x", "y"] as const).map((axis) => <label key={axis} className="text-sm">{axis.toUpperCase()} (%)<input type="number" min={0} max={100} value={point[axis]} onChange={(e) => setPoint({ ...point, [axis]: Math.max(0, Math.min(100, Number(e.target.value))) })} className="ml-2 min-h-11 w-20 rounded border px-2 dark:bg-slate-900" /></label>)}

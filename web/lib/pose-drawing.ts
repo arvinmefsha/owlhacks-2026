@@ -7,7 +7,7 @@ export const COCO_CONNECTIONS: [number, number][] = [
   [0, 5], [0, 6],
 ];
 
-export function drawCalibration(ctx: CanvasRenderingContext2D, calibration: Calibration) {
+export function drawCalibration(ctx: CanvasRenderingContext2D, calibration: Calibration, options?: { boardLine?: boolean }) {
   const { width, height } = ctx.canvas;
   const scale = Math.max(2, width / 400);
   ctx.save();
@@ -28,6 +28,11 @@ export function drawCalibration(ctx: CanvasRenderingContext2D, calibration: Cali
     ctx.strokeStyle = "#f59e0b";
     ctx.fillStyle = "#f59e0b";
     ctx.lineWidth = scale;
+    if (options?.boardLine) {
+      ctx.setLineDash([scale * 6, scale * 4]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.beginPath(); ctx.arc(x, y, scale * 4, 0, Math.PI * 2); ctx.stroke();
     ctx.fillText("board tip", x + scale * 6, y - scale * 4);
   }
