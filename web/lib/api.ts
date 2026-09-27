@@ -64,6 +64,11 @@ export type Feedback = {
   workouts: { id: string; reason: string }[];
 };
 
+export type DiveFeedbackResult = {
+  feedback: Feedback;
+  feedback_source: "pending" | "gemini" | "rules";
+};
+
 export type VisionReview = { summary: string; notes: { phase: Phase; note: string }[] };
 
 export type Dive = {
@@ -79,7 +84,7 @@ export type Dive = {
   overall_score: number | null;
   analysis: Analysis;
   feedback: Feedback;
-  feedback_source: "gemini" | "rules";
+  feedback_source: DiveFeedbackResult["feedback_source"];
   vision_review: VisionReview | null;
   readiness_hr: number | null;
   readiness_br: number | null;

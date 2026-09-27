@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from config import Settings, get_settings
 from db.database import SQL_DIR, split_statements
@@ -23,6 +24,14 @@ def test_secrets_are_masked_in_repr():
     text = repr(settings) + str(settings.model_dump())
     assert "abc123secret" not in text and "hunter2" not in text
     assert settings.presage_api_key is None
+
+
+def test_tigerdata_url_is_required_and_sqlite_is_rejected(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, database_url="sqlite:///local.db")
 
 
 def test_sql_files_split_into_statements():

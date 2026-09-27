@@ -218,6 +218,29 @@ class Database:
             ).fetchall()
             return dive
 
+    def get_feedback(self, dive_id: UUID) -> dict | None:
+        with self.pool.connection() as conn:
+            return conn.execute(
+                "SELECT feedback, feedback_source FROM dives WHERE id = %s", (dive_id,)
+            ).fetchone()
+
+    def save_feedback(self, dive_id: UUID, feedback: dict, source: str) -> None:
+        with self.pool.connection() as conn:
+            conn.execute(
+                "UPDATE dives SET feedback = %s, feedback_source = %s WHERE id = %s AND feedback_source = 'pending'",
+                (Jsonb(feedback), source, dive_id),
+            )
+
+    def finish_pending_feedback(self, dive_id: UUID | None = None) -> None:
+        with self.pool.connection() as conn:
+            if dive_id is None:
+                conn.execute("UPDATE dives SET feedback_source = 'rules' WHERE feedback_source = 'pending'")
+            else:
+                conn.execute(
+                    "UPDATE dives SET feedback_source = 'rules' WHERE id = %s AND feedback_source = 'pending'",
+                    (dive_id,),
+                )
+
     def save_vision_review(self, dive_id: UUID, review: dict) -> None:
         with self.pool.connection() as conn:
             conn.execute("UPDATE dives SET vision_review = %s WHERE id = %s", (Jsonb(review), dive_id))

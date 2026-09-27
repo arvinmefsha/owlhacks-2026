@@ -222,8 +222,42 @@ class LocalDatabase:
         dive["readiness_br"] = None if readiness is None else readiness["readiness_br"]
         return dive
 
+    def get_feedback(self, dive_id: UUID) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload FROM dives WHERE id = ?", (str(dive_id),)).fetchone()
+        if row is None:
+            return None
+        payload = _loads(row["payload"], {})
+        return {"feedback": payload.get("feedback"), "feedback_source": payload.get("feedback_source")}
+
+    def save_feedback(self, dive_id: UUID, feedback: dict, source: str) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload FROM dives WHERE id = ?", (str(dive_id),)).fetchone()
+            if row is None:
+                return
+            payload = _loads(row["payload"], {})
+            if payload.get("feedback_source") != "pending":
+                return
+            payload.update(feedback=feedback, feedback_source=source)
+            connection.execute("UPDATE dives SET payload = ? WHERE id = ?", (_json(payload), str(dive_id)))
+
+    def finish_pending_feedback(self, dive_id: UUID | None = None) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if dive_id is None:
+                rows = connection.execute("SELECT id, payload FROM dives").fetchall()
+            else:
+                rows = connection.execute("SELECT id, payload FROM dives WHERE id = ?", (str(dive_id),)).fetchall()
+            for row in rows:
+                payload = _loads(row["payload"], {})
+                if payload.get("feedback_source") == "pending":
+                    payload["feedback_source"] = "rules"
+                    connection.execute("UPDATE dives SET payload = ? WHERE id = ?", (_json(payload), row["id"]))
+
     def save_vision_review(self, dive_id: UUID, review: dict) -> None:
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT payload FROM dives WHERE id = ?", (str(dive_id),)).fetchone()
             if row is None:
                 return

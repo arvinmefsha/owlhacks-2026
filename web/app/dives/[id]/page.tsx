@@ -6,7 +6,7 @@ import { use, useEffect, useMemo, useRef, useState } from "react";
 
 import { UploadVideoPlayer } from "@/components/UploadVideoPlayer";
 import { LineChart } from "@/components/LineChart";
-import { api, describeDive, type Dive, type Metric, type Phase, type VisionReview, type Workout } from "@/lib/api";
+import { api, describeDive, type Dive, type DiveFeedbackResult, type Metric, type Phase, type VisionReview, type Workout } from "@/lib/api";
 import { drawPose } from "@/lib/pose-drawing";
 
 const PHASES: Phase[] = ["takeoff", "flight", "entry"];
@@ -41,6 +41,27 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
     api<Dive>(`/dives/${id}`).then(setDive).catch((e: Error) => setError(e.message));
     api<Workout[]>("/workouts").then(setWorkouts).catch(() => {});
   }, [id]);
+
+  useEffect(() => {
+    if (dive?.feedback_source !== "pending") return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    async function checkFeedback() {
+      try {
+        const result = await api<DiveFeedbackResult>(`/dives/${id}/feedback`);
+        if (!active) return;
+        if (result.feedback_source !== "pending") {
+          setDive((current) => current ? { ...current, ...result } : current);
+          return;
+        }
+      } catch {
+        // Keep the video review available and retry while the page is open.
+      }
+      if (active) timer = setTimeout(checkFeedback, 2000);
+    }
+    timer = setTimeout(checkFeedback, 2000);
+    return () => { active = false; clearTimeout(timer); };
+  }, [id, dive?.feedback_source]);
 
   function seek(t: number | null) {
     const video = videoRef.current;
@@ -114,11 +135,16 @@ export default function DivePage({ params }: { params: Promise<{ id: string }> }
               <p className="mt-1 text-slate-600 dark:text-slate-400">The old feedback depended on the same incorrect measurements, so it is hidden rather than presented as reliable advice.</p>
             </div>
           ) : <>
+          {dive.feedback_source === "pending" && (
+            <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm dark:border-sky-900 dark:bg-sky-950" role="status">
+              Gemini coaching is still processing. The rule-based feedback below will update automatically when it finishes.
+            </div>
+          )}
           <div>
             <div className="mb-1 flex items-center gap-2">
               <h2 className="font-semibold">Coach&apos;s summary</h2>
               <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800">
-                {dive.feedback_source === "gemini" ? "Gemini" : "Rule-based"}
+                {dive.feedback_source === "gemini" ? "Gemini" : dive.feedback_source === "pending" ? "Rule-based · Gemini pending" : "Rule-based"}
               </span>
             </div>
             <p className="text-sm leading-relaxed">{feedback.summary}</p>

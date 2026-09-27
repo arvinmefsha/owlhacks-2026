@@ -7,6 +7,7 @@ from typing import Literal
 
 from analysis.scoring import FAULT_TITLES
 from google import genai
+from google.genai import types
 from pydantic import BaseModel, Field
 
 from feedback.catalog import catalog_by_id, load_catalog, workouts_for
@@ -261,10 +262,23 @@ def _tip_context(analysis: dict, setup: dict, previous_analysis: dict | None, di
 
 class GeminiCoach:
     def __init__(self, api_key: str | None, model: str, timeout_s: float = 45.0):
-        self._client = genai.Client(api_key=api_key) if api_key else None
+        # The SDK retries transient 429/5xx responses. Bound that wait so the
+        # saved rule-based feedback can be shown promptly when Gemini is busy.
+        self._client = None
+        if api_key:
+            self._client = genai.Client(
+                api_key=api_key,
+                http_options=types.HttpOptions(
+                    retry_options=types.HttpRetryOptions(attempts=2, initial_delay=1.0, max_delay=3.0)
+                ),
+            )
         self._api_key = api_key
         self.model = model
         self.timeout_s = timeout_s
+
+    @property
+    def enabled(self) -> bool:
+        return self._client is not None
 
     def describe_error(self, exc: Exception) -> str:
         """An exception summary that is safe to log."""
@@ -297,7 +311,7 @@ class GeminiCoach:
             response_format={"type": "text", "mime_type": "application/json", "schema": _feedback_schema(ids)},
             generation_config={"thinking_level": "low"},
             store=False,
-            timeout=self.timeout_s,
+            timeout=min(self.timeout_s, 30.0),
         )
         feedback = DiveFeedback.model_validate_json(interaction.output_text)
         known = set(ids)

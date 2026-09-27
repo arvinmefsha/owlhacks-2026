@@ -48,6 +48,13 @@ export function DiveCapturePage({ initialMode = "live" }: { initialMode?: "live"
       return setError("Mark the board tip and visible air–water surface first.");
     }
     setError("");
+    try {
+      const health = await api<{ ok: boolean }>("/health");
+      if (!health.ok) throw new Error("Analysis service unavailable.");
+    } catch {
+      setError("Analysis service unavailable. Check that the API and database are running, then try again.");
+      return;
+    }
     const form = new FormData();
     form.append("payload", new Blob([JSON.stringify({
       setup,

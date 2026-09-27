@@ -14,7 +14,6 @@ from uuid import UUID, uuid4
 from analysis_jobs import AnalysisJobManager
 from config import Settings, get_settings
 from db.database import Database
-from db.local import LocalDatabase
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from feedback.catalog import load_catalog
@@ -37,13 +36,10 @@ MAX_KEYFRAME_BYTES = 4 * 1024 * 1024
 async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    if settings.database_url is None:
-        db = LocalDatabase(settings.local_db_path)
-        log.info("DATABASE_URL is not set; using local SQLite at %s", settings.local_db_path)
-    else:
-        db = Database(settings.database_url.get_secret_value())
+    db = Database(settings.database_url.get_secret_value())
     db.init_schema(load_catalog())
     db.open()
+    db.finish_pending_feedback()
     app.state.settings = settings
     app.state.db = db
     gemini_key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
@@ -93,7 +89,7 @@ def _video_file(settings: Settings, name: str | None) -> Path | None:
 
 @app.get("/health")
 def health(db: DB):
-    return {"ok": db.ping()}
+    return {"ok": db.ping(), "database": "TimescaleDB"}
 
 
 def _analysis_jobs(request: Request) -> AnalysisJobManager:
@@ -172,6 +168,14 @@ def get_dive(dive_id: UUID, db: DB, settings: AppSettings):
         ],
     }
     return dive
+
+
+@app.get("/dives/{dive_id}/feedback")
+def get_dive_feedback(dive_id: UUID, db: DB):
+    feedback = db.get_feedback(dive_id)
+    if feedback is None:
+        raise HTTPException(404, "Dive not found.")
+    return feedback
 
 
 @app.get("/dives/{dive_id}/video")

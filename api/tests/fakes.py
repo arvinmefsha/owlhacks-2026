@@ -56,6 +56,21 @@ class FakeDatabase:
             "frames": frames,
         }
 
+    def get_feedback(self, dive_id: UUID) -> dict | None:
+        dive = self.dives.get(dive_id)
+        return None if dive is None else {"feedback": dive["feedback"], "feedback_source": dive["feedback_source"]}
+
+    def save_feedback(self, dive_id: UUID, feedback: dict, source: str) -> None:
+        dive = self.dives.get(dive_id)
+        if dive is not None and dive["feedback_source"] == "pending":
+            dive.update(feedback=feedback, feedback_source=source)
+
+    def finish_pending_feedback(self, dive_id: UUID | None = None) -> None:
+        dives = self.dives.values() if dive_id is None else [self.dives[dive_id]] if dive_id in self.dives else []
+        for dive in dives:
+            if dive["feedback_source"] == "pending":
+                dive["feedback_source"] = "rules"
+
     def save_vision_review(self, dive_id: UUID, review: dict) -> None:
         self.dives[dive_id]["vision_review"] = review
 
@@ -87,6 +102,7 @@ class FakeDatabase:
 
 class FakeCoach:
     def __init__(self):
+        self.enabled = False
         self.feedback_calls = 0
         self.keyframes: list[tuple[str, bytes, str]] = []
         self.tip_calls: list[tuple[dict, dict, dict | None, int]] = []

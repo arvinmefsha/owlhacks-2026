@@ -5,6 +5,7 @@ Secrets are SecretStr so they print as '**********' if a settings object is ever
 
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import SecretStr, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,8 +19,7 @@ class Settings(BaseSettings):
 
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.8-flash"
-    database_url: SecretStr | None = None
-    local_db_path: Path = API_DIR / "local-data" / "dives.sqlite3"
+    database_url: SecretStr
     presage_api_key: SecretStr | None = None
     upload_dir: Path = API_DIR / "uploads"
     max_upload_mb: int = 200
@@ -34,12 +34,16 @@ class Settings(BaseSettings):
 
     @field_validator("gemini_api_key", "database_url", "elevenlabs_api_key")
     @classmethod
-    def _not_placeholder(cls, value: SecretStr | None) -> SecretStr | None:
+    def _not_placeholder(cls, value: SecretStr | None, info: ValidationInfo) -> SecretStr | None:
         if value is None:
             return None
         secret = value.get_secret_value().strip()
         if not secret or secret.startswith("your-") or "your-password" in secret:
             raise ValueError("missing or still the placeholder from .env.example")
+        if info.field_name == "database_url":
+            parsed = urlsplit(secret)
+            if parsed.scheme not in {"postgres", "postgresql"} or not parsed.hostname or not parsed.password:
+                raise ValueError("DATABASE_URL must be a PostgreSQL URL with a host and password")
         return SecretStr(secret)
 
     @field_validator("presage_api_key", "yolo_device", "elevenlabs_api_key", "elevenlabs_voice_id", mode="before")

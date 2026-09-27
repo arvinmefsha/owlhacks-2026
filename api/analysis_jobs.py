@@ -24,6 +24,7 @@ from diving_tracker.backend import BackendConfig, UltralyticsTopDownBackend
 from diving_tracker.calibration import CalibrationData
 from diving_tracker.tracker import DivingTracker, TrackerConfig
 from diving_tracker.dive_context import DiveContext
+from feedback.gemini import rule_based_feedback
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class AnalysisJobManager:
         self.coach = coach
         self.settings = settings
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yolo-analysis")
+        self.feedback_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dive-feedback")
         self.jobs: dict[UUID, dict] = {}
         self.futures: dict[UUID, Future] = {}
         self.lock = Lock()
@@ -82,6 +84,19 @@ class AnalysisJobManager:
 
     def shutdown(self) -> None:
         self.executor.shutdown(wait=False, cancel_futures=True)
+        self.feedback_executor.shutdown(wait=False, cancel_futures=True)
+
+    def _finish_feedback(self, dive_id: UUID, analysis: dict, setup: dict) -> None:
+        try:
+            feedback, source = self.coach.feedback(analysis, setup)
+            self.db.save_feedback(dive_id, feedback.model_dump(), source)
+        except Exception:
+            # The initial rule-based feedback is already saved with the dive.
+            log.exception("Coaching update for dive %s failed", dive_id)
+            try:
+                self.db.finish_pending_feedback(dive_id)
+            except Exception:
+                log.exception("Could not finalize rule-based feedback for dive %s", dive_id)
 
     def _update(self, job_id: UUID, **values: Any) -> None:
         with self.lock:
@@ -205,8 +220,15 @@ class AnalysisJobManager:
                 "pipeline": "pts-rotation-carry-v4",
             }
             analysis["processing"] = tracker.diagnostics
-            self._update(job_id, stage="Writing coaching feedback", progress=0.92)
-            feedback, feedback_source = self.coach.feedback(analysis, setup)
+            if payload["source"] == "live":
+                self._update(job_id, stage="Writing coaching feedback", progress=0.92)
+                initial_feedback, feedback_source = self.coach.feedback(analysis, setup)
+                coaching_pending = False
+            else:
+                self._update(job_id, stage="Saving video analysis", progress=0.92)
+                initial_feedback = rule_based_feedback(analysis)
+                coaching_pending = self.coach.enabled and analysis.get("method") != "macro-envelope-v1"
+                feedback_source = "pending" if coaching_pending else "rules"
 
             dive_id = uuid4()
             recorded_at = datetime.now(UTC)
@@ -247,7 +269,7 @@ class AnalysisJobManager:
                         "overall_score": None,
                         "scores": {},
                         "analysis": analysis,
-                        "feedback": feedback.model_dump(),
+                        "feedback": initial_feedback.model_dump(),
                         "feedback_source": feedback_source,
                     },
                     frames,
@@ -260,10 +282,19 @@ class AnalysisJobManager:
             self._update(
                 job_id,
                 status="complete",
-                stage="Analysis complete",
+                stage="Video analysis complete",
                 progress=1.0,
                 dive_id=str(dive_id),
             )
+            if coaching_pending:
+                try:
+                    self.feedback_executor.submit(self._finish_feedback, dive_id, analysis, setup)
+                except Exception:
+                    log.exception("Could not start coaching for dive %s", dive_id)
+                    try:
+                        self.db.finish_pending_feedback(dive_id)
+                    except Exception:
+                        log.exception("Could not finalize rule-based feedback for dive %s", dive_id)
         except Exception as exc:
             log.exception("YOLO analysis job %s failed", job_id)
             video_path.unlink(missing_ok=True)

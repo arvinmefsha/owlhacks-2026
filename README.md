@@ -15,7 +15,7 @@ Both profiles use a person detector followed by YOLO11 pose on a padded diver cr
 
 ## Setup
 
-1. Copy `.env.example` to `.env` in the repository root and set `GEMINI_API_KEY` and `DATABASE_URL`. The real `.env` is ignored by Git.
+1. Copy `.env.example` to `.env` in the repository root and set `DATABASE_URL` to the TigerData connection URL, including its password. Set `GEMINI_API_KEY` to enable Gemini coaching. The real `.env` is ignored by Git. The API requires the database connection at startup and does not use a local database.
 2. Start the backend (Python 3.13):
 
    ```bash

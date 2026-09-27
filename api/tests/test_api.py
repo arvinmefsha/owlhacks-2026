@@ -151,7 +151,7 @@ def test_saved_dive_review_and_video(client, tmp_path):
             "scores": {"overall": 8.0},
             "analysis": {"scores": {"overall": 8.0}},
             "feedback": {"summary": "Good dive", "faults": [], "cues": [], "workouts": []},
-            "feedback_source": "rules",
+            "feedback_source": "pending",
         },
         [{"t": 0.0, "lm": [[0.5, 0.5, 0.0, 0.9]] * 17}],
         [],
@@ -160,6 +160,13 @@ def test_saved_dive_review_and_video(client, tmp_path):
     dive = client.get(f"/dives/{dive_id}")
     assert dive.status_code == 200
     assert len(dive.json()["frames"]["lm"][0]) == 68
+    pending = client.get(f"/dives/{dive_id}/feedback")
+    assert pending.json()["feedback_source"] == "pending"
+    assert "frames" not in pending.json()
+    db.save_feedback(dive_id, {"summary": "Gemini finished", "faults": [], "cues": [], "workouts": []}, "gemini")
+    finished = client.get(f"/dives/{dive_id}/feedback")
+    assert finished.json()["feedback_source"] == "gemini"
+    assert finished.json()["feedback"]["summary"] == "Gemini finished"
     video = client.get(f"/dives/{dive_id}/video")
     assert video.status_code == 200
     assert video.content == b"stored-video"
@@ -173,6 +180,7 @@ def test_saved_dive_review_and_video(client, tmp_path):
 
     assert client.delete(f"/dives/{dive_id}").status_code == 204
     assert not (tmp_path / filename).exists()
+    assert client.get(f"/dives/{dive_id}/feedback").status_code == 404
 
 
 def test_readiness(client):

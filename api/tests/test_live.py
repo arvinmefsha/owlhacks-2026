@@ -551,7 +551,7 @@ def test_blank_live_settings_are_none_or_defaults(monkeypatch, tmp_path):
         "LIVE_POSE_SIZE": "",
     }.items():
         monkeypatch.setenv(name, value)
-    settings = Settings(_env_file=None, gemini_api_key="test-key", upload_dir=tmp_path)
+    settings = Settings(_env_file=None, gemini_api_key="test-key", database_url="postgres://user:pw@localhost/test", upload_dir=tmp_path)
     assert settings.elevenlabs_api_key is None and settings.elevenlabs_voice_id is None
     assert settings.elevenlabs_model == "eleven_flash_v2_5"
     assert (settings.live_pose_model, settings.live_pose_size) == ("yolo11n-pose.pt", 480)
