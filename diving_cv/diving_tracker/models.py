@@ -11,6 +11,7 @@ class PoseMeasurement:
     confidence: np.ndarray
     box: np.ndarray
     detection_confidence: float
+    box_confidence: float | None = None
 
 
 @dataclass
@@ -26,6 +27,8 @@ class FrameTrack:
     board_tip: np.ndarray
     raw_keypoints: np.ndarray | None = None
     raw_confidence: np.ndarray | None = None
+    measured_box: np.ndarray | None = None
+    box_confidence: float = 0.0
 
 
 @dataclass

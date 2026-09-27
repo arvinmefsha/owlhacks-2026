@@ -29,12 +29,8 @@ log = logging.getLogger(__name__)
 
 
 def _metric_rows(dive_id: UUID, diver_id: UUID, at: datetime, analysis: dict) -> list[tuple]:
-    rows = [(dive_id, diver_id, at, m["phase"], m["key"], m["value"], m["score"]) for m in analysis["metrics"]]
+    rows = [(dive_id, diver_id, at, m["phase"], m["key"], m["value"], None) for m in analysis["metrics"] if m["value"] is not None]
     rows += [(dive_id, diver_id, at, "info", i["key"], i["value"], None) for i in analysis["info"]]
-    rows += [
-        (dive_id, diver_id, at, phase, f"score_{phase}", score, score)
-        for phase, score in analysis["scores"].items()
-    ]
     return rows
 
 
@@ -108,7 +104,7 @@ class AnalysisJobManager:
             # Jobs are serialized, so one loaded model pair can safely use profile-specific sizes.
             backend_config.device = self.backend.config.device
             self.backend.config = backend_config
-        return self.backend, TrackerConfig(backend=backend_config)
+        return self.backend, TrackerConfig(backend=backend_config, calculate_legacy_kinematics=False)
 
     def _run(self, job_id: UUID, payload: dict, video_path: Path, mime: str) -> None:
         try:
@@ -176,7 +172,19 @@ class AnalysisJobManager:
                         landmarks.append(
                             [float(point[0] / width), float(point[1] / height), 0.0, score]
                         )
-                frames.append({"t": track.timestamp, "lm": landmarks})
+                measured_box = track.measured_box
+                raw = track.raw_keypoints
+                raw_conf = track.raw_confidence
+                evidence = None if raw is None or raw_conf is None else [
+                    [float(p[0] / width), float(p[1] / height), 0.0, float(c)]
+                    if np.isfinite(p).all() else [0., 0., 0., 0.]
+                    for p, c in zip(raw, raw_conf)
+                ]
+                frames.append({"t": track.timestamp, "lm": landmarks,
+                    "evidence_lm": evidence,
+                    "box": (measured_box / np.array([width, height, width, height])).tolist()
+                        if measured_box is not None and np.isfinite(measured_box).all() else None,
+                    "box_confidence": track.box_confidence})
 
             diver = self.db.get_diver(UUID(payload["diver_id"]))
             if diver is None:
@@ -196,7 +204,6 @@ class AnalysisJobManager:
                 "schema": "coco17-v1",
                 "pipeline": "pts-rotation-carry-v4",
             }
-            analysis["kinematics"] = kinematics.summary
             analysis["processing"] = tracker.diagnostics
             self._update(job_id, stage="Writing coaching feedback", progress=0.92)
             feedback, feedback_source = self.coach.feedback(analysis, setup)
@@ -220,6 +227,8 @@ class AnalysisJobManager:
                     points=np.array([t.keypoints for t in tracks]),
                     confidence=np.array([t.confidence for t in tracks]),
                     predicted=np.array([t.predicted for t in tracks]),
+                    boxes=np.array([t.measured_box if t.measured_box is not None else np.full(4, np.nan) for t in tracks]),
+                    box_confidence=np.array([t.box_confidence for t in tracks]),
                     candidate_diagnostics=np.array(json.dumps(tracker.candidate_diagnostics)))
                 analysis["processing"]["seconds"]["save_artifact"] = perf_counter()-save_started
                 self.db.insert_dive(
@@ -235,8 +244,8 @@ class AnalysisJobManager:
                         "video_width": width,
                         "video_height": height,
                         "fps": fps if np.isfinite(fps) and fps > 0 else None,
-                        "overall_score": analysis["scores"]["overall"],
-                        "scores": analysis["scores"],
+                        "overall_score": None,
+                        "scores": {},
                         "analysis": analysis,
                         "feedback": feedback.model_dump(),
                         "feedback_source": feedback_source,

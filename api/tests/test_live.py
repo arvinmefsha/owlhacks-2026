@@ -14,7 +14,7 @@ import live_pose as live_pose_module
 import main
 import numpy as np
 import pytest
-from analysis import analyze_dive
+from analysis.pipeline import analyze_dive  # Historical v1 feedback compatibility fixtures.
 from config import Settings, get_settings
 from diving_tracker import backend as backend_module
 from diving_tracker.backend import BackendConfig, UltralyticsTopDownBackend

@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 
-import { scoreColor } from "@/lib/score";
 import type { LiveDive } from "./LiveSession";
 
 const button = "inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:border-slate-600 dark:hover:bg-slate-800";
 
-/** End-of-session summary: every dive in order, its score, and a link to the full analysis. */
+/** End-of-session summary: every dive in order and a link to its feedback. */
 export function SessionTimeline({ dives, onNewSession }: { dives: LiveDive[]; onNewSession: () => void }) {
   const analyzing = dives.filter((dive) => dive.status === "analyzing").length;
   return (
@@ -21,7 +20,7 @@ export function SessionTimeline({ dives, onNewSession }: { dives: LiveDive[]; on
           {dives.length === 0
             ? "Dives are saved automatically once the camera sees a diver leave the board."
             : analyzing > 0
-              ? `${analyzing} still analyzing. Scores fill in here as each one finishes.`
+              ? `${analyzing} still analyzing. Coaching observations appear here as each one finishes.`
               : "Open any dive for the full breakdown."}
         </p>
       </header>
@@ -56,10 +55,7 @@ export function SessionTimeline({ dives, onNewSession }: { dives: LiveDive[]; on
 function DiveResult({ dive }: { dive: LiveDive }) {
   if (dive.status === "complete" && dive.dive) {
     return (
-      <p>
-        <span className={`text-3xl font-bold ${scoreColor(dive.dive.overall_score)}`}>{dive.dive.overall_score.toFixed(1)}</span>
-        <span className="text-xs text-slate-500"> / 10</span>
-      </p>
+      <p className="text-sm font-medium">Coaching feedback ready</p>
     );
   }
   if (dive.status === "analyzing") {

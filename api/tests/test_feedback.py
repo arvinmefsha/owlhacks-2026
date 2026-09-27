@@ -2,7 +2,8 @@ import json
 import logging
 from types import SimpleNamespace
 
-from analysis import analyze_dive
+from analysis.pipeline import analyze_dive  # Historical v1 feedback compatibility fixtures.
+from analysis.macro import TITLES as MACRO_TITLES
 from analysis.scoring import FAULT_TITLES
 from feedback.catalog import load_catalog, workouts_for
 from feedback.gemini import CUES, GeminiCoach, format_value, rule_based_feedback
@@ -37,11 +38,11 @@ def coach_with(interactions: FakeInteractions) -> GeminiCoach:
 def test_every_fault_has_a_cue_and_a_workout():
     ids = {w["id"] for w in load_catalog()}
     assert len(ids) == len(load_catalog()), "workout ids must be unique"
-    for fault in FAULT_TITLES:
+    for fault in set(FAULT_TITLES) | set(MACRO_TITLES):
         assert fault in CUES, fault
         assert workouts_for([fault]), fault
     for workout in load_catalog():
-        assert set(workout["targets"]) <= set(FAULT_TITLES), workout["id"]
+        assert set(workout["targets"]) <= set(FAULT_TITLES) | set(MACRO_TITLES), workout["id"]
 
 
 def test_rule_feedback_for_a_sloppy_dive():

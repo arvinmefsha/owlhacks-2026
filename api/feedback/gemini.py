@@ -33,7 +33,7 @@ class DiveFeedback(BaseModel):
     summary: str = Field(description="Two or three sentences: overall impression, biggest strength, most important fix.")
     faults: list[FeedbackFault] = Field(max_length=4, description="Most important faults first.")
     cues: list[str] = Field(min_length=1, max_length=4, description="Short coaching cues for the next attempt.")
-    workouts: list[WorkoutPick] = Field(min_length=1, max_length=5, description="Dryland workouts from the catalog.")
+    workouts: list[WorkoutPick] = Field(max_length=5, description="Dryland workouts for supported faults; empty when none can be established.")
 
 
 class VisionNote(BaseModel):
@@ -51,7 +51,7 @@ class LiveTip(BaseModel):
 
 
 SYSTEM_INSTRUCTION = """You are an experienced springboard and platform diving coach reviewing one dive.
-You receive measurements from a pose-estimation system that watched the dive from the side, each already scored out of 10 against a coaching target, plus the faults it detected and a catalog of dryland workouts.
+You receive supported observations from a pose-estimation system that watched the dive from the side, plus the faults it detected and a catalog of dryland workouts.
 
 - Only state what the measurements support. Quote numbers where they help, for example "hips opened to 150°, aim for 165°".
 - The measurements are approximate. If there are warnings about tracking or calibration, mention the most important one briefly.
@@ -68,7 +68,7 @@ LIVE_TIP_MAX_WORDS = 35
 LIVE_TIP_TIMEOUT_S = 12.0
 
 LIVE_TIP_INSTRUCTION = """You are a diving coach standing poolside. The diver just climbed out of the water and you give them one quick spoken pointer before the next dive.
-You receive the dive setup, scores out of 10 from a pose-estimation system, the top faults with their measurements and a suggested cue, any tracking warnings, and sometimes the same numbers for the diver's previous dive.
+You receive the dive setup, supported observations from a pose-estimation system, the top faults with their measurements and a suggested cue, any tracking warnings, and sometimes the same observations for the diver's previous dive.
 
 - One or two short sentences, 35 words at most, in second person. It is read aloud, so no lists, markdown, symbols or emoji.
 - Open with a few words of encouragement about something that went well, then give exactly one concrete fix for the first (highest-impact) fault.
@@ -76,6 +76,13 @@ You receive the dive setup, scores out of 10 from a pose-estimation system, the 
 - Never invent numbers or faults. With no faults, tell the diver what to keep doing."""
 
 CUES: dict[str, str] = {
+    "EXCESSIVE_TRAVEL": "Review takeoff direction with your coach.",
+    "LOW_APEX": "Review your board timing with your coach.",
+    "LOOSE_SHAPE": "Practice the compact position with your coach.",
+    "UNDER_ROTATION": "Review the entry frame with your coach.",
+    "OVER_ROTATION": "Review the entry frame with your coach.",
+    "ENTRY_LINE_OFF_VERTICAL": "Hold the entry line through first water contact.",
+    "FOLDED_ENTRY": "Open from the tuck before reaching the water.",
     "takeoff_knees_bent": "Push through the board until the legs are straight.",
     "takeoff_hips_closed": "Stand tall at takeoff, hips forward.",
     "takeoff_lean": "Jump up first, then rotate.",
@@ -103,13 +110,12 @@ def format_value(value: float, unit: str) -> str:
 def _context(analysis: dict, setup: dict) -> dict:
     return {
         "dive": setup,
-        "scores": analysis["scores"],
         "measurements": [
-            {k: m[k] for k in ("label", "phase", "value", "unit", "target", "score", "t")} for m in analysis["metrics"]
+            {k: m[k] for k in ("label", "phase", "value", "unit", "target", "t")} for m in analysis["metrics"]
         ],
         "other_measurements": analysis["info"],
         "faults": [
-            {k: f[k] for k in ("id", "title", "phase", "value", "unit", "target", "score", "severity", "t")}
+            {k: f[k] for k in ("id", "title", "phase", "value", "unit", "target", "severity", "t")}
             for f in analysis["faults"]
         ],
         "warnings": analysis["warnings"],
@@ -123,6 +129,38 @@ def _feedback_schema(workout_ids: list[str]) -> dict:
 
 
 def rule_based_feedback(analysis: dict) -> DiveFeedback:
+    if analysis.get("method") in {"macro-envelope-v1", "macro-observations-v2"}:
+        faults = _top_faults(analysis, 4)
+        assessed = [m for m in analysis["metrics"] if m["value"] is not None]
+        available = len(assessed)
+        entry = next((m for m in analysis["metrics"] if m["key"] == "entry_deviation_deg"), None)
+        if assessed:
+            summary = f"Feedback uses {available} supported observation{'s' if available != 1 else ''}."
+        else:
+            summary = "A reliable technique measurement is unavailable because tracking missed too much of the dive. Keep the full diver and waterline in frame through entry, then try another upload."
+        if entry and entry["value"] is not None and "Entry line:" not in summary:
+            summary += f" Entry line: {entry['value']:.1f}° from vertical."
+        if faults:
+            summary += f" Main thing to work on: {faults[0]['title'].lower()}."
+        elif assessed:
+            summary += " The supported checks did not flag a focus area."
+        cues = list(dict.fromkeys(CUES[f["id"]] for f in faults if f["id"] in CUES))[:2]
+        if not cues and entry and entry["value"] is not None:
+            cues = ["Keep the entry line close to vertical." if entry["value"] <= 10 else "Work toward a straighter line at first water contact."]
+        if not cues and assessed:
+            cues = ["Keep the full body in frame through the whole dive for more complete feedback."]
+        return DiveFeedback(
+            summary=summary,
+            faults=[FeedbackFault(title=f["title"], phase=f["phase"], timestamp_s=f["t"],
+                detail=("The tracked body stayed folded in the last clear frames before water contact. "
+                        "Open the tuck and reach into a straight line before entry."
+                        if f["id"] == "FOLDED_ENTRY" else
+                        f"{f['label']}: {f['value']:.2f} {f['unit']}; target {f['target']}. This does not establish the cause."),
+                severity=f["severity"]) for f in faults[:4]],
+            cues=cues or ["Keep the camera steady and include the full diver and waterline."],
+            workouts=[WorkoutPick(id=w["id"], reason=f"Target: {w['target']}")
+                      for w, _ in workouts_for([f["id"] for f in faults], per_fault=1)],
+        )
     scores = analysis["scores"]
     faults = analysis["faults"][:4]
     phases = {p: s for p, s in scores.items() if p != "overall"}
@@ -164,11 +202,20 @@ PHASE_PRAISE: dict[str, tuple[str, ...]] = {
 
 
 def _top_faults(analysis: dict, limit: int) -> list[dict]:
-    return sorted(analysis.get("faults") or [], key=lambda f: f.get("impact", 0), reverse=True)[:limit]
+    return sorted(analysis.get("faults") or [], key=lambda f: f.get("priority", 0), reverse=True)[:limit]
 
 
 def rule_based_tip(analysis: dict, previous_analysis: dict | None = None, dive_number: int = 1) -> str:
     """A short spoken tip: praise, the change since the last dive if it moved, and one fix."""
+    if analysis.get("method") in {"macro-envelope-v1", "macro-observations-v2"}:
+        faults = analysis.get("faults") or []
+        if faults:
+            return f"The video flagged {faults[0]['title'].lower()}. Review that keyframe with your coach before adjusting your next dive."
+        measurements = [m for m in analysis.get("metrics", []) if m.get("value") is not None]
+        if measurements:
+            metric = next((m for m in measurements if m.get("key") == "entry_deviation_deg"), measurements[0])
+            return f"We measured {metric['label'].lower()} at {metric['value']:.1f} {metric['unit']}. Keep the full diver in frame for a more complete review."
+        return "Tracking missed too much of this dive for a reliable technique measurement. Keep the full diver and waterline visible, then try again."
     scores = analysis["scores"]
     overall = scores["overall"]
     fix = next(iter(_top_faults(analysis, 1)), None)
@@ -228,7 +275,7 @@ class GeminiCoach:
 
     def feedback(self, analysis: dict, setup: dict) -> tuple[DiveFeedback, str]:
         """Feedback and its source ("gemini" or "rules" if the Gemini call failed)."""
-        if self._client is None:
+        if analysis.get("method") == "macro-envelope-v1" or self._client is None:
             return rule_based_feedback(analysis), "rules"
         try:
             return self._ask_feedback(analysis, setup), "gemini"
@@ -261,6 +308,8 @@ class GeminiCoach:
         self, analysis: dict, setup: dict, previous_analysis: dict | None = None, dive_number: int = 1
     ) -> tuple[str, str]:
         """A short spoken tip and its source ("gemini", or "rules" if Gemini is off or failed)."""
+        if analysis.get("method") == "macro-envelope-v1":
+            return rule_based_tip(analysis, previous_analysis, dive_number), "rules"
         if self._client is not None:
             try:
                 return self._ask_tip(analysis, setup, previous_analysis, dive_number), "gemini"
@@ -289,13 +338,18 @@ class GeminiCoach:
         """Ask Gemini to look at keyframes given as (label, image bytes, mime type). Raises on failure."""
         if self._client is None:
             raise RuntimeError("Gemini is not configured.")
-        content: list[dict] = [{"type": "text", "text": VISION_PROMPT + "\n\n" + json.dumps(_context(analysis, setup))}]
+        macro = analysis.get("method") == "macro-envelope-v1"
+        instruction = ("Describe only visible features in these takeoff, apex and entry frames. "
+            "Measurements are bounding-box estimates, not joint-angle scores. Do not invent scores, "
+            "faults, causes or corrective timing advice. Missing metrics mean unavailable, not a pass. "
+            "If endpoints are obscured or below water, say they cannot be assessed.") if macro else SYSTEM_INSTRUCTION
+        content: list[dict] = [{"type": "text", "text": (instruction if macro else VISION_PROMPT) + "\n\n" + json.dumps(_context(analysis, setup))}]
         for label, image, mime in frames:
             content.append({"type": "text", "text": f"Frame: {label}"})
             content.append({"type": "image", "data": base64.b64encode(image).decode(), "mime_type": mime})
         interaction = self._client.interactions.create(
             model=self.model,
-            system_instruction=SYSTEM_INSTRUCTION,
+            system_instruction=instruction,
             input=content,
             response_format={"type": "text", "mime_type": "application/json", "schema": VisionReview.model_json_schema()},
             generation_config={"thinking_level": "low"},

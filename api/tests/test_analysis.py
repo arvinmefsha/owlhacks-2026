@@ -1,5 +1,6 @@
 import pytest
-from analysis import AnalysisError, analyze_dive
+# Compatibility tests for the old measurement helpers; production uses macro.py.
+from analysis.pipeline import AnalysisError, analyze_dive
 
 from tests.synthetic import HEIGHT, WIDTH, DiveSpec, generate
 
@@ -46,6 +47,21 @@ def test_good_tuck_dive_matches_ground_truth():
     assert result["scores"]["overall"] >= 8.0
     assert not {"low_height", "loose_position", "under_rotation"} & fault_ids(result)
     assert result["warnings"] == []
+
+
+def test_vertical_entry_is_zero_deviation_even_when_axis_points_up():
+    """Regression for the screenshot's false ~180° entry result."""
+    frames, truth = generate(DiveSpec(rotation_deg=540))
+    result = analyze_dive(
+        frames,
+        WIDTH,
+        HEIGHT,
+        TUCK_103C,
+        {"board_tip": truth["board_tip"], "water_y": truth["water_y"]},
+        height_cm=170,
+    )
+    assert metric(result, "entry_angle_deg")["value"] < 6
+    assert "over_rotation" not in fault_ids(result)
 
 
 def test_sloppy_dive_produces_the_expected_faults():

@@ -63,6 +63,15 @@ class FakeDatabase:
         dive = self.dives.pop(dive_id, None)
         return None if dive is None else {"id": dive_id, "video_path": dive["video_path"]}
 
+    def delete_all_dives(self, diver_id: UUID) -> list[dict]:
+        selected = [d for d in self.dives.values() if d["diver_id"] == diver_id]
+        for dive in selected:
+            self.dives.pop(dive["id"], None)
+            self.frames.pop(dive["id"], None)
+            self.metrics.pop(dive["id"], None)
+        self.readiness = [r for r in self.readiness if r["diver_id"] != diver_id]
+        return [{"video_path": d["video_path"]} for d in selected]
+
     def save_readiness(self, diver_id: UUID, at: datetime, heart_rate, breathing_rate) -> dict:
         row = {"id": uuid4(), "diver_id": diver_id, "readiness_hr": heart_rate, "readiness_br": breathing_rate, "readiness_at": at}
         self.readiness.append(row)

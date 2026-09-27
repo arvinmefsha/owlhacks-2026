@@ -54,16 +54,19 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
   function seek(value: number) {
     const video = videoRef.current;
     if (!video || !duration) return;
+    const target = Math.max(0, Math.min(Math.max(0, duration - 0.001), value));
     video.pause();
-    video.currentTime = Math.max(0, Math.min(duration, value));
-    setTime(video.currentTime);
+    // Update the controls immediately, then let the seeked event repaint the
+    // canvas with the decoded frame. This keeps scrubbing responsive even when
+    // the browser is still decoding the requested position.
+    setTime(target);
+    video.currentTime = target;
   }
   function step(direction: number) {
-    const current = videoRef.current?.currentTime ?? 0;
-    const next = times[Math.max(0, Math.min(times.length - 1, frameIndexAt(times, current) + direction))];
-    // Seek just inside the presentation interval to avoid browser rounding back
-    // to the preceding frame at an exact boundary.
-    seek(next === undefined ? current + direction / 60 : next + 0.0002);
+    const currentIndex = frameIndexAt(times, time);
+    const nextIndex = Math.max(0, Math.min(Math.max(0, times.length - 1), currentIndex + direction));
+    const next = times[nextIndex];
+    seek(next === undefined ? time + direction / 60 : next);
   }
   async function toggle() {
     const video = videoRef.current;
@@ -104,7 +107,14 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
             const video = e.currentTarget;
             setDuration(Number.isFinite(video.duration) ? video.duration : 0);
             setAspect(`${video.videoWidth} / ${video.videoHeight}`);
+            video.pause();
+            video.currentTime = 0;
+            setTime(0);
             video.playbackRate = speed;
+          }}
+          onSeeked={(e) => {
+            const current = e.currentTarget.currentTime;
+            if (Number.isFinite(current)) setTime(current);
           }}
           onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
           onError={() => setError("This video could not be opened. Try an H.264 MP4 file.")}

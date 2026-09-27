@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import UUID
 
 import numpy as np
-from analysis import analyze_dive
+from analysis.pipeline import analyze_dive  # Preserve v1 semantics when repairing legacy timestamps.
 from analysis_jobs import _metric_rows
 from diving_tracker.timing import read_timeline
 from feedback.gemini import rule_based_feedback
@@ -40,6 +40,8 @@ def repair(db_path: Path, upload_dir: Path, apply=False, dive_id=None):
             report = {"id": row["id"]}
             try:
                 payload = json.loads(row["payload"])
+                if payload.get("analysis", {}).get("version", 1) != 1:
+                    raise ValueError("Timestamp repair supports only legacy v1 records; reanalyze this clip instead.")
                 if payload.get("analysis", {}).get("model", {}).get("schema") != "coco17-v1":
                     raise ValueError("Not the supported one-row-per-source-frame YOLO schema.")
                 path = (upload_dir / payload["video_path"]).resolve()

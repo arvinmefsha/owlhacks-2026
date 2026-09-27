@@ -1,5 +1,35 @@
 [
   {
+    "id": "macro_wall_slide_jumps", "name": "Wall-Slide Squat Jumps",
+    "targets": ["EXCESSIVE_TRAVEL"], "target": "Excessive board travel off takeoff",
+    "sets": 3, "reps": "8 jumps", "equipment": "Flat wall",
+    "description": "Stand with heels and back 2 inches off a flat wall. Drop into a quarter squat, swing arms back, and jump straight up while reaching both arms overhead. Keep the movement vertical. Practice with your coach and adequate clearance."
+  },
+  {
+    "id": "macro_depth_rebound", "name": "Depth Drop-to-Vertical Rebound",
+    "targets": ["LOW_APEX"], "target": "Low flight apex height",
+    "sets": 4, "reps": "5 reps", "equipment": "12–16 inch box or step",
+    "description": "With your coach, step off a low box. Land on the balls of your feet with a controlled soft bend, then rebound straight up and reach overhead. Keep the landing controlled and contact brief."
+  },
+  {
+    "id": "macro_tuck_snaps", "name": "Supine Rapid Tuck Snaps",
+    "targets": ["LOOSE_SHAPE"], "target": "Incomplete body compression during flight",
+    "sets": 3, "reps": "15 snaps", "equipment": "Exercise mat or gym floor",
+    "description": "Lie in a hollow hold, lower back on the mat and heels hovering. Quickly bring your knees toward your armpits and hold your shins in a tight ball for one count. Open back to hollow without resting your heels."
+  },
+  {
+    "id": "macro_kickout_freeze", "name": "Tuck Roll to Horizontal Kickout Freeze",
+    "targets": ["UNDER_ROTATION", "FOLDED_ENTRY"], "target": "Opening the tuck into a straight entry line",
+    "sets": 4, "reps": "8 reps", "equipment": "Exercise mat or gym floor",
+    "description": "Roll onto your shoulders in a tight tuck. As you roll forward, extend your legs parallel to the floor, hovering 2–4 inches above the mat. Reach arms overhead into an entry position and hold a rigid line for two seconds."
+  },
+  {
+    "id": "macro_handstand_lineup", "name": "Belly-to-Wall Handstand Lineup",
+    "targets": ["OVER_ROTATION", "ENTRY_LINE_OFF_VERTICAL"], "target": "Entry line past vertical or off vertical",
+    "sets": 4, "reps": "30-second holds", "equipment": "Flat wall",
+    "description": "With a coach or spotter, enter a belly-to-wall handstand with hands 4–6 inches away. Keep pointed toes lightly at the wall, draw your abdomen and hips into line, and push tall through your shoulders with ears between your arms."
+  },
+  {
     "id": "box_jumps",
     "name": "Box jumps",
     "targets": ["low_height", "takeoff_knees_bent", "takeoff_hips_closed"],

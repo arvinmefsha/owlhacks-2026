@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Dive Form Analyzer",
-  description: "Record a dive, get form scores, coaching feedback and workouts.",
+  description: "Record a dive, get evidence-based coaching feedback and workouts.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

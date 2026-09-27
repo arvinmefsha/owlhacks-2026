@@ -126,12 +126,26 @@ def compute_metrics(
         )
 
     body_dir = direction_deg(body.ankle, body.shoulder)
-    target_dir = 180.0 if out.head_first else 0.0
-    offset = _window_median(wrap_deg(body_dir - target_dir), lo, contact)
-    out.put("entry_angle_deg", abs(offset), t[contact])
-    # Negative means the diver still had rotation left to do (short), positive means past vertical.
-    if np.isfinite(offset) and abs(out.rotation_deg) > 45:
-        out.put("entry_rotation_error_deg", offset * np.sign(out.rotation_deg), t[contact])
+    # A body line has no arrow: both 0° (up) and 180° (down) are perfectly
+    # vertical. The previous calculation compared those equivalent lines
+    # directionally and turned a straight entry into ~180° of error whenever
+    # the head/feet classifier disagreed with the selected dive.
+    axis_error = (body_dir + 90.0) % 180.0 - 90.0
+    entry_deviation = _window_median(axis_error, lo, contact)
+    out.put("entry_angle_deg", abs(entry_deviation), t[contact])
+    # Under/over rotation requires the observed entry direction to agree with
+    # the selected dive. If it does not, retain the safe line measurement and
+    # warning, but do not manufacture a directional fault from a classification
+    # mismatch or a 180° axis ambiguity.
+    if (
+        out.head_first == expected_head_first
+        and np.isfinite(out.rotation_deg)
+        and abs(out.rotation_deg) > 45
+    ):
+        target_dir = 180.0 if expected_head_first else 0.0
+        directional_offset = _window_median(wrap_deg(body_dir - target_dir), lo, contact)
+        if np.isfinite(directional_offset) and abs(directional_offset) <= 45:
+            out.put("entry_rotation_error_deg", directional_offset * np.sign(out.rotation_deg), t[contact])
 
     out.put("entry_body_line_deg", _window_median(angle_at(body.shoulder, body.hip, body.ankle), lo, contact), t[contact])
 

@@ -1,7 +1,7 @@
-"""Score raw measurements out of 10 and turn the weak ones into faults.
+"""Score raw measurements on a 0–9 coaching scale and turn weak ones into faults.
 
 Targets are coaching rules of thumb, not official judging criteria. Each spec says what value
-earns a 10 (good) and what earns a 0 (bad), with a straight line in between. Tune them here.
+earns a 9 (good) and what earns a 0 (bad), with a straight line in between. Tune them here.
 """
 
 from dataclasses import dataclass
@@ -18,6 +18,12 @@ FAULT_BELOW = 7.0
 MAJOR_BELOW = 4.0
 
 FAULT_TITLES: dict[str, str] = {
+    "EXCESSIVE_TRAVEL": "Excessive board travel",
+    "LOW_APEX": "Low flight apex",
+    "LOOSE_SHAPE": "Loose tuck or pike envelope",
+    "UNDER_ROTATION": "Short of vertical at entry",
+    "OVER_ROTATION": "Past vertical at entry",
+    "ENTRY_LINE_OFF_VERTICAL": "Entry line off vertical",
     "takeoff_knees_bent": "Knees not fully extended at takeoff",
     "takeoff_hips_closed": "Hips not open at takeoff",
     "takeoff_lean": "Leaning at takeoff",
@@ -55,11 +61,11 @@ def score_value(value: float, spec: Spec) -> float:
     if isinstance(spec.good, tuple):
         (lo, hi), (lo_bad, hi_bad) = spec.good, spec.bad
         if lo <= value <= hi:
-            return 10.0
+            return 9.0
         frac = (value - lo_bad) / (lo - lo_bad) if value < lo else (hi_bad - value) / (hi_bad - hi)
     else:
         frac = (value - spec.bad) / (spec.good - spec.bad)
-    return round(10.0 * float(np.clip(frac, 0.0, 1.0)), 1)
+    return round(9.0 * float(np.clip(frac, 0.0, 1.0)), 1)
 
 
 def specs_for(position: str, apparatus: str, head_first: bool) -> list[Spec]:
