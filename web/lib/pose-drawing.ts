@@ -35,18 +35,16 @@ export function drawCalibration(ctx: CanvasRenderingContext2D, calibration: Cali
 }
 
 export function frameIndexAt(times: number[], time: number): number {
+  if (!Number.isFinite(time)) return -1;
   let lo = 0, hi = times.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (times[mid] <= time + 0.00001) lo = mid + 1;
+    // PostgreSQL REAL timestamps can round by a few microseconds. Do not select
+    // the next frame halfway through a long VFR frame's presentation interval.
+    if (times[mid] <= time + 0.0001) lo = mid + 1;
     else hi = mid;
   }
-  const after = lo;
-  const before = lo - 1;
-  if (before < 0) return after < times.length && times[after] - time <= 0.15 ? after : -1;
-  if (after >= times.length) return time - times[before] <= 0.15 ? before : -1;
-  const nearest = time - times[before] <= times[after] - time ? before : after;
-  return Math.abs(time - times[nearest]) <= 0.15 ? nearest : -1;
+  return lo - 1;
 }
 
 export function drawPose(ctx: CanvasRenderingContext2D, pose: number[][] | null, waterY: number | null = null) {

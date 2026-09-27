@@ -24,6 +24,8 @@ class FrameTrack:
     detection_confidence: float
     com: np.ndarray
     board_tip: np.ndarray
+    raw_keypoints: np.ndarray | None = None
+    raw_confidence: np.ndarray | None = None
 
 
 @dataclass

@@ -54,7 +54,7 @@ diving-track dive.mp4 \
   --device mps
 ```
 
-Common inference devices are `--device cpu`, `--device mps` on Apple Silicon, or `--device 0` for the first CUDA GPU. Omit the option to let Ultralytics choose. `--show` previews the rendered output, and `--no-video` produces only CSV and JSON.
+Common inference devices are `--device cpu`, `--device mps` on Apple Silicon, or `--device 0` for the first CUDA GPU. Omit the option to select available CUDA, MPS, or CPU in that order. `--show` previews the rendered output, and `--no-video` produces only CSV and JSON.
 
 ## Outputs
 
@@ -81,7 +81,9 @@ CSV vertical position and velocity use world convention: height and `vy_m_s` are
 ## Failure handling and interpretation
 
 - Detector misses use a CoM-driven predicted crop for up to 0.45 s.
-- Joint occlusions use per-keypoint predictions for up to 0.35 s, then become missing instead of drifting indefinitely.
+- Reliable joint measurements remain unshifted; uncertain ones receive a small centered offline correction. Short gaps up to 85 ms are interpolated between observations above water; longer gaps and splash exits remain missing.
+- Decoded presentation timestamps preserve variable frame timing. A mismatch between timestamp and image decoders aborts analysis rather than shifting poses.
+- Detector inference is periodic with immediate reacquisition; quality pose crops use 768 pixels, with bounded 960-pixel retries for difficult poses. Timing and device diagnostics appear in the summary.
 - A temporal assignment check suppresses whole-body left/right label flips during inversion.
 - The renderer clips limbs at the water surface after entry and stops drawing lost splash-exit joints.
 - The CSV distinguishes measured and predicted keypoints. Predicted points should not be treated as independent observations.

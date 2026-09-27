@@ -12,6 +12,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
+from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -90,12 +91,12 @@ class AnalysisJobManager:
                 self.jobs[job_id].update(values)
 
     def _backend(self, profile: str) -> tuple[UltralyticsTopDownBackend, TrackerConfig]:
-        size = 640 if profile == "fast" else 960
+        size = 640 if profile == "fast" else 768
         backend_config = BackendConfig(
             detector_model=self.settings.yolo_detector_model,
             pose_model=self.settings.yolo_pose_model,
             device=self.settings.yolo_device,
-            detector_size=size,
+            detector_size=640,
             pose_size=size,
             crop_padding=0.30,
         )
@@ -103,6 +104,7 @@ class AnalysisJobManager:
             self.backend = UltralyticsTopDownBackend(backend_config)
         else:
             # Jobs are serialized, so one loaded model pair can safely use profile-specific sizes.
+            backend_config.device = self.backend.config.device
             self.backend.config = backend_config
         return self.backend, TrackerConfig(backend=backend_config)
 
@@ -187,8 +189,10 @@ class AnalysisJobManager:
                 "family": "YOLO11-Pose",
                 "profile": payload["profile"],
                 "schema": "coco17-v1",
+                "pipeline": "pts-offline-v2",
             }
             analysis["kinematics"] = kinematics.summary
+            analysis["processing"] = tracker.diagnostics
             self._update(job_id, stage="Writing coaching feedback", progress=0.92)
             feedback, feedback_source = self.coach.feedback(analysis, setup)
 
@@ -197,8 +201,21 @@ class AnalysisJobManager:
             extension = video_path.suffix.lower()
             final_name = f"{dive_id}{extension}"
             final_path = self.settings.upload_dir / final_name
+            diagnostics_path = final_path.with_suffix(".tracking.npz")
             shutil.move(str(video_path), final_path)
             try:
+                save_started = perf_counter()
+                # Local audit data supports comparisons and future reprocessing
+                # without another model pass. Never sent to an external service.
+                np.savez_compressed(diagnostics_path,
+                    frame=np.array([t.frame for t in tracks]),
+                    times=np.array([t.timestamp for t in tracks]),
+                    raw=np.array([t.raw_keypoints for t in tracks]),
+                    raw_confidence=np.array([t.raw_confidence for t in tracks]),
+                    points=np.array([t.keypoints for t in tracks]),
+                    confidence=np.array([t.confidence for t in tracks]),
+                    predicted=np.array([t.predicted for t in tracks]))
+                analysis["processing"]["seconds"]["save_artifact"] = perf_counter()-save_started
                 self.db.insert_dive(
                     {
                         "id": dive_id,
@@ -223,6 +240,7 @@ class AnalysisJobManager:
                 )
             except Exception:
                 final_path.unlink(missing_ok=True)
+                diagnostics_path.unlink(missing_ok=True)
                 raise
             self._update(
                 job_id,

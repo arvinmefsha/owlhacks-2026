@@ -48,8 +48,8 @@ class BackendConfig:
     device: str | None = None
     detector_confidence: float = 0.2
     pose_confidence: float = 0.15
-    detector_size: int = 960
-    pose_size: int = 960
+    detector_size: int = 640
+    pose_size: int = 768
     crop_padding: float = 0.3
 
 
@@ -64,6 +64,11 @@ class UltralyticsTopDownBackend:
                 "Ultralytics is not installed. Run `python -m pip install -e .` in diving_cv."
             ) from exc
         self.config = config
+        # Ultralytics does not automatically select Apple MPS. Record the actual
+        # selected device so slow CPU fallback is visible in analysis diagnostics.
+        import torch
+        if not config.device:
+            config.device = "cuda:0" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
         self.detector = YOLO(config.detector_model)
         self.pose = YOLO(config.pose_model)
 
@@ -109,23 +114,31 @@ class UltralyticsTopDownBackend:
                 [box_iou(candidate, predicted_box) for candidate in boxes]
             )
             ranks = 0.65 * scores + 0.45 * overlaps - 0.50 * np.minimum(distance, 3.0)
+            ranks[distance > 1.25] = -np.inf
+            if not np.isfinite(ranks).any():
+                return None, 0.0
         index = int(np.argmax(ranks))
         return boxes[index], float(scores[index])
 
     def estimate_pose(
-        self, frame: np.ndarray, detection_box: np.ndarray, detection_confidence: float
+        self, frame: np.ndarray, detection_box: np.ndarray, detection_confidence: float,
+        rotation: int = 0, padding: float | None = None,
+        pose_size: int | None = None,
     ) -> PoseMeasurement | None:
         height, width = frame.shape[:2]
-        crop_box = padded_box(detection_box, width, height, self.config.crop_padding)
+        crop_box = padded_box(detection_box, width, height, self.config.crop_padding if padding is None else padding)
         x1, y1, x2, y2 = np.rint(crop_box).astype(int)
         crop = frame[y1:y2, x1:x2]
         if crop.size == 0:
             return None
+        crop_height, crop_width = crop.shape[:2]
+        if rotation:
+            crop = np.ascontiguousarray(np.rot90(crop, rotation))
         options: dict[str, object] = {
             "source": crop,
             "conf": self.config.pose_confidence,
             "iou": 0.6,
-            "imgsz": self.config.pose_size,
+            "imgsz": pose_size or self.config.pose_size,
             "verbose": False,
         }
         if self.config.device:
@@ -138,6 +151,7 @@ class UltralyticsTopDownBackend:
         ):
             return None
         all_points = result.keypoints.xy.cpu().numpy().astype(float)
+        all_points = unrotate_points(all_points, crop_width, crop_height, rotation)
         if result.keypoints.conf is None:
             all_confidence = np.ones(all_points.shape[:2], dtype=float)
         else:
@@ -148,6 +162,19 @@ class UltralyticsTopDownBackend:
             else np.nanmean(all_confidence, axis=1)
         )
         quality = 0.6 * np.nanmedian(all_confidence, axis=1) + 0.4 * person_confidence
+        if result.boxes is None:
+            return None
+        boxes = result.boxes.xyxy.cpu().numpy().astype(float)
+        corners = unrotate_points(boxes.reshape(-1, 2, 2), crop_width, crop_height, rotation)
+        boxes = np.concatenate((corners.min(axis=1), corners.max(axis=1)), axis=1)
+        boxes += np.array([x1, y1, x1, y1])
+        target_center = (detection_box[:2] + detection_box[2:]) / 2
+        distance = np.linalg.norm((boxes[:, :2] + boxes[:, 2:])/2 - target_center, axis=1)
+        distance /= max(np.linalg.norm(detection_box[2:] - detection_box[:2]), 1.)
+        quality -= 0.5 * distance
+        quality[distance > 1.0] = -np.inf
+        if not np.isfinite(quality).any():
+            return None
         index = int(np.nanargmax(quality))
         points = all_points[index]
         points[:, 0] += x1
@@ -156,6 +183,19 @@ class UltralyticsTopDownBackend:
         return PoseMeasurement(
             keypoints=points,
             confidence=all_confidence[index],
-            box=np.asarray(detection_box, dtype=float),
+            box=boxes[index],
             detection_confidence=float(detection_confidence),
         )
+
+
+def unrotate_points(points: np.ndarray, width: int, height: int, turns: int) -> np.ndarray:
+    """Map np.rot90 crop pixel centers back to the unrotated crop."""
+    out = points.copy()
+    x, y = points[..., 0], points[..., 1]
+    if turns % 4 == 1:
+        out[..., 0], out[..., 1] = width - 1 - y, x
+    elif turns % 4 == 2:
+        out[..., 0], out[..., 1] = width - 1 - x, height - 1 - y
+    elif turns % 4 == 3:
+        out[..., 0], out[..., 1] = y, height - 1 - x
+    return out

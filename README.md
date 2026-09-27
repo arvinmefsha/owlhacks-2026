@@ -11,7 +11,7 @@ Record a dive or upload existing footage, then review YOLO-based pose tracking, 
 - **Practice camera:** the browser records the dive, then sends the completed clip to the local `fast` YOLO profile. Feedback appears after analysis; inference does not compete with camera capture.
 - **Uploaded footage:** the browser sends the original clip to the local `quality` profile, which uses a larger inference size for more precise review.
 
-Both profiles use a person detector followed by YOLO11 pose on a padded diver crop. Per-joint constant-acceleration filters carry short occlusions through tuck and pike positions, motion association keeps the crop on the diver, and temporal left/right correction reduces limb swaps during inversion. The review overlay clips submerged limb segments at the water surface while preserving visible joints above it.
+Both profiles use a person detector followed by YOLO11 pose on a padded diver crop. Detection runs periodically, with immediate recovery when the crop fails; pose inference still covers each decodable source frame while a diver crop is available. Offline centered refinement preserves strong observations and fills short, bracketed occlusions. The review clips submerged limb segments at the water surface.
 
 ## Setup
 
@@ -51,12 +51,39 @@ The API queues inference and reports its stage, frame count, and progress. A com
 
 - Detection is restricted to the flight path and associated with the predicted center of mass.
 - The pose crop includes 30% padding so extended limbs are not cut off.
-- Measurements below 0.4 confidence are rejected instead of snapping to `(0, 0)`.
-- A constant-acceleration Kalman filter predicts individual joints for short gaps, while longer gaps are marked missing to prevent drift.
-- Predicted points are visibly distinguished and stored below the measured-joint confidence threshold.
+- Strong observations (confidence ≥0.6) retain the model's exact positions; uncertain observations receive a small centered correction instead of a trailing causal filter.
+- Gaps are interpolated only between valid observations at most 85 ms apart, above the water. There is no open-ended joint extrapolation.
+- Estimated points are visibly distinguished and stored below the measured-joint confidence threshold.
+- The detector runs at 640 pixels; quality pose inference uses 768, fast uses 640. Difficult crops may receive a bounded 960-pixel rotated/expanded retry.
+- Source presentation timestamps and frame order are validated with PyAV. Missing or ambiguous timestamps produce an actionable error instead of a guessed VFR timeline.
+- Playback draws video pixels and the matching pose together in one canvas, using decoded `mediaTime`. Scrubbing uses the frame's presentation interval, never a future nearest neighbor.
+- Per-stage processing times and the actual device are saved in `analysis.processing`. Raw and refined poses are retained locally in `api/uploads/<dive-id>.tracking.npz` for comparison.
 - Entry is inferred from the calibrated water surface. Limbs are shortened at that line so visible body parts remain drawn without inventing underwater locations.
 
 Pose estimates are not ground truth. Blur, strong reflections, severe occlusion, small subjects, camera motion, and other people can still reduce accuracy.
+
+## Existing reviews and verification
+
+Install the updated backend dependencies and restart the API before testing. Existing Python workers retain previously imported code. `YOLO_DEVICE` can override automatic CUDA/MPS/CPU selection; availability is checked at runtime.
+
+For the local SQLite database, repair verified legacy `frame_index / average_fps` timestamps without running YOLO again:
+
+```bash
+api/.venv/bin/python api/repair_timestamps.py          # dry run
+api/.venv/bin/python api/repair_timestamps.py --apply  # backup, then atomic update
+```
+
+The repair checks the schema, frame count/order, and known timestamp sequence. It refuses ambiguous mappings, records the video SHA-256, recomputes time-dependent metrics and rule-based feedback, and is idempotent. A full SQLite backup is placed beside the database before writes. PostgreSQL is not modified by this local repair command. Legacy filtered coordinates cannot be undone from their timestamps: upload the original clip again to get the new limb refinement. Original reviews remain available.
+
+Browser regression checks can be run on a saved dive with the app running:
+
+```bash
+cd web
+node tests/browser-review.mjs <dive-uuid>
+# Open http://localhost:3000/_sync-check.html and read the results.
+```
+
+The harness exercises the real review page, playback speeds, scrubbing, frame steps, and decoded-frame skeleton coordinates. The generated `public/_sync-check.html` is a temporary local test artifact and should not be deployed.
 
 ## Tests
 

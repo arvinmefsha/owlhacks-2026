@@ -49,13 +49,13 @@ def parser() -> argparse.ArgumentParser:
     )
     output.add_argument(
         "--device",
-        help="Inference device, such as cpu, 0, or mps; omit for Ultralytics auto-selection",
+        help="Inference device, such as cpu, 0, or mps; omit to select available acceleration",
     )
     output.add_argument(
-        "--detector-size", type=int, default=960, help="Detector inference image size"
+        "--detector-size", type=int, default=640, help="Detector inference image size"
     )
     output.add_argument(
-        "--pose-size", type=int, default=960, help="Pose inference image size"
+        "--pose-size", type=int, default=768, help="Pose inference image size"
     )
     output.add_argument(
         "--padding",

@@ -3,13 +3,15 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 
 import cv2
 import numpy as np
 
 from .backend import BackendConfig, UltralyticsTopDownBackend
 from .calibration import CalibrationData
-from .filters import KeypointFilter
+from .refinement import refine_poses, reliable_pose, pose_quality
+from .timing import read_timeline
 from .kinematics import KinematicsAnalyzer, anthropometric_com, stabilize_left_right
 from .models import AnalysisResult, FrameTrack
 
@@ -22,6 +24,8 @@ class TrackerConfig:
     max_box_prediction_seconds: float = 0.45
     process_variance: float = 900.0
     measurement_variance: float = 16.0
+    detection_interval: int = 4
+    retry_interval: int = 3
 
 
 class DiverBoxTracker:
@@ -134,6 +138,7 @@ class DivingTracker:
     ) -> None:
         self.config = config or TrackerConfig()
         self.backend = backend
+        self.diagnostics: dict = {}
 
     def process(
         self,
@@ -141,6 +146,10 @@ class DivingTracker:
         calibration: CalibrationData,
         progress: Callable[[int, int], None] | None = None,
     ) -> tuple[list[FrameTrack], AnalysisResult]:
+        started = perf_counter()
+        timeline = read_timeline(video_path)
+        timings = {"timeline": perf_counter()-started, "decode": 0., "detect": 0., "pose": 0., "board": 0.}
+        calls = {"detect": 0, "pose": 0, "retry": 0}
         capture = cv2.VideoCapture(str(video_path))
         if not capture.isOpened():
             raise FileNotFoundError(f"Could not open video: {video_path}")
@@ -153,63 +162,94 @@ class DivingTracker:
         calibration.validate(width, height)
 
         backend = self.backend or UltralyticsTopDownBackend(self.config.backend)
-        keypoint_filter = KeypointFilter(
-            confidence_threshold=self.config.keypoint_confidence,
-            max_prediction_seconds=self.config.max_keypoint_prediction_seconds,
-            process_variance=self.config.process_variance,
-            measurement_variance=self.config.measurement_variance,
-        )
         box_tracker = DiverBoxTracker(self.config.max_box_prediction_seconds)
         board_tracker = BoardTipTracker(calibration.board_tip)
         tracks: list[FrameTrack] = []
         filtered_reference: np.ndarray | None = None
         index = 0
-        previous_timestamp = -1.0
+        last_detection = -self.config.detection_interval
+        last_retry = -self.config.retry_interval
+        previous_reliable = False
+
+        def detect(frame, predicted_box):
+            start = perf_counter()
+            result = backend.detect(frame, calibration.roi, predicted_box)
+            timings["detect"] += perf_counter()-start
+            calls["detect"] += 1
+            return result
+
+        def estimate(frame, box, confidence, **kwargs):
+            start = perf_counter()
+            result = backend.estimate_pose(frame, box, confidence, **kwargs)
+            timings["pose"] += perf_counter()-start
+            calls["pose"] += 1
+            return result
+
         try:
             while True:
+                start = perf_counter()
                 ok, frame = capture.read()
+                timings["decode"] += perf_counter()-start
                 if not ok:
                     break
-                # Use the container/decoder presentation timestamp when it is
-                # available. Index/fps is only an approximation and drifts on
-                # VFR or timestamped MOV/WebM files, which makes review overlays
-                # appear several frames behind the video.
-                decoded_timestamp = float(capture.get(cv2.CAP_PROP_POS_MSEC)) / 1000.0
-                timestamp = decoded_timestamp if np.isfinite(decoded_timestamp) and decoded_timestamp >= 0 else index / fps
-                if timestamp <= previous_timestamp:
-                    timestamp = max(index / fps, previous_timestamp + 1.0 / fps)
-                previous_timestamp = timestamp
+                if index >= len(timeline.times):
+                    raise ValueError("Video decoders disagree on frame count; cannot align poses safely.")
+                timestamp = float(timeline.times[index])
+                start = perf_counter()
                 board_tip = board_tracker.step(frame)
+                timings["board"] += perf_counter()-start
                 predicted_box = box_tracker.predict(timestamp)
-                detected_box, detection_confidence = backend.detect(
-                    frame, calibration.roi, predicted_box
-                )
+                do_detect = (predicted_box is None or not previous_reliable or index-last_detection >= self.config.detection_interval)
+                detected_box, detection_confidence = (None, 0.)
+                if do_detect:
+                    detected_box, detection_confidence = detect(frame, predicted_box)
+                    last_detection = index
+                crop_box = detected_box if detected_box is not None else predicted_box
                 pose = None
-                if detected_box is not None:
-                    pose = backend.estimate_pose(
-                        frame, detected_box, detection_confidence
-                    )
-                elif predicted_box is not None:
-                    pose = backend.estimate_pose(frame, predicted_box, 0.0)
+                if crop_box is not None:
+                    pose = estimate(frame, crop_box, detection_confidence)
+                # Reacquire immediately if the cheap propagated crop fails.
+                if not reliable_pose(pose) and not do_detect:
+                    detected_box, detection_confidence = detect(frame, predicted_box)
+                    last_detection = index
+                    if detected_box is not None:
+                        crop_box = detected_box
+                        candidate = estimate(frame, crop_box, detection_confidence)
+                        if pose_quality(candidate) > pose_quality(pose):
+                            pose = candidate
+                # At most one rotated/expanded retry per interval, while the
+                # tracked crop is still above the surface. Never chase a splash.
+                if (not reliable_pose(pose) and crop_box is not None and crop_box[1] < calibration.water_y
+                        and index-last_retry >= self.config.retry_interval):
+                    reference = pose.keypoints if pose is not None else filtered_reference
+                    rotation = 2
+                    if reference is not None and np.isfinite(reference[[5,6,11,12]]).all():
+                        torso = reference[[5,6]].mean(axis=0)-reference[[11,12]].mean(axis=0)
+                        rotation = (1 if torso[0] > 0 else 3) if abs(torso[0]) > abs(torso[1]) else (2 if torso[1] > 0 else 0)
+                    candidate = estimate(frame, crop_box, detection_confidence, rotation=rotation, padding=0.5, pose_size=960)
+                    last_retry = index
+                    calls["retry"] += 1
+                    if pose_quality(candidate) > pose_quality(pose) + 0.05:
+                        pose = candidate
 
+                raw_points = np.full((17,2), np.nan)
+                raw_confidence = np.zeros(17)
                 if pose is not None:
                     raw_points, raw_confidence = stabilize_left_right(
                         pose.keypoints.copy(),
                         pose.confidence.copy(),
                         filtered_reference,
                     )
-                    filtered, confidence, predicted = keypoint_filter.step(
-                        timestamp, raw_points, raw_confidence
-                    )
-                else:
-                    filtered, confidence, predicted = keypoint_filter.step(
-                        timestamp, None, None
-                    )
+                filtered = raw_points.copy()
+                filtered[raw_confidence < 0.35] = np.nan
+                confidence = np.where(np.isfinite(filtered).all(axis=1), raw_confidence, 0.)
+                predicted = np.zeros(17, dtype=bool)
                 com = anthropometric_com(filtered)
                 if np.isfinite(filtered).any():
                     filtered_reference = filtered.copy()
 
-                update_box = pose.box if pose is not None else detected_box
+                previous_reliable = reliable_pose(pose)
+                update_box = pose.box if pose is not None and pose_quality(pose) >= 0.35 else detected_box
                 if update_box is not None:
                     box_tracker.update(
                         update_box, com if np.isfinite(com).all() else None, timestamp
@@ -228,6 +268,8 @@ class DivingTracker:
                         detection_confidence=float(detection_confidence),
                         com=com,
                         board_tip=board_tip,
+                        raw_keypoints=raw_points,
+                        raw_confidence=raw_confidence,
                     )
                 )
                 index += 1
@@ -237,5 +279,20 @@ class DivingTracker:
             capture.release()
         if not tracks:
             raise RuntimeError("The input video contained no readable frames.")
+        if len(tracks) != len(timeline.times):
+            raise ValueError("Video decoders disagree on frame count; cannot align poses safely.")
+        start = perf_counter()
+        points, scores, predicted = refine_poses(timeline.times,
+            np.array([t.raw_keypoints for t in tracks]), np.array([t.raw_confidence for t in tracks]), calibration.water_y)
+        for i, track in enumerate(tracks):
+            track.keypoints, track.confidence, track.predicted = points[i], scores[i], predicted[i]
+            track.com = anthropometric_com(points[i])
+        timings["refine"] = perf_counter()-start
+        start = perf_counter()
         analysis = KinematicsAnalyzer(calibration, fps).analyze(tracks)
+        timings["kinematics"] = perf_counter()-start
+        timings["total"] = perf_counter()-started
+        self.diagnostics = {"timing": timeline.metadata(), "seconds": timings, "calls": calls,
+                            "device": backend.config.device, "filter": "offline-centered-v1"}
+        analysis.summary["processing"] = self.diagnostics
         return tracks, analysis

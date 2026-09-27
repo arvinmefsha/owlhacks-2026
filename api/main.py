@@ -186,6 +186,7 @@ def delete_dive(dive_id: UUID, db: DB, settings: AppSettings):
     path = _video_file(settings, row["video_path"])
     if path:
         path.unlink(missing_ok=True)
+        path.with_suffix(".tracking.npz").unlink(missing_ok=True)
 
 
 @app.post("/dives/{dive_id}/vision-review")

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Calibration, Point, PoseFrame } from "@/lib/api";
 import { drawCalibration, drawPose, frameIndexAt } from "@/lib/pose-drawing";
+import { synchronizeVideo } from "@/lib/video-sync";
 
 const button = "min-h-11 rounded-lg border border-slate-300 px-3 text-sm font-medium hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 disabled:opacity-40 dark:border-slate-600 dark:hover:bg-slate-800";
 
@@ -28,15 +29,15 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
   useEffect(() => {
     const video = videoRef.current, canvas = canvasRef.current;
     if (!video || !canvas) return;
-    let animationFrame = 0;
-    let lastUiTime = -1;
-    let displayedTime = video.currentTime;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) return;
     const draw = (timestamp: number) => {
       if (!video.videoWidth) return;
       if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
       if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d")!;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Both layers are painted together. Even a delayed callback cannot leave
+      // an old skeleton over an independently advancing video element.
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       drawCalibration(ctx, calibration);
       if (overlay) drawPose(ctx, frames[frameIndexAt(times, timestamp)]?.lm ?? null, calibration.water_y);
       if (marker) {
@@ -44,33 +45,8 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
         ctx.beginPath(); ctx.arc(marker.x * canvas.width, marker.y * canvas.height, canvas.width / 60, 0, Math.PI * 2); ctx.stroke();
       }
     };
-    const loop = () => {
-      // Draw immediately before the browser paints. RVFC runs after a decoded
-      // frame is presented, which can make a canvas overlay visibly trail it.
-      displayedTime = video.currentTime;
-      draw(displayedTime);
-      if (Math.abs(displayedTime - lastUiTime) >= 1 / 15) {
-        lastUiTime = displayedTime;
-        setTime(displayedTime);
-      }
-      animationFrame = requestAnimationFrame(loop);
-    };
-    const decoded = () => {
-      // Cover paused frames and browsers that do not repaint immediately after a seek.
-      draw(video.currentTime); setTime(video.currentTime);
-    };
-    const seeking = () => canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
-    video.addEventListener("timeupdate", decoded);
-    video.addEventListener("seeked", decoded); video.addEventListener("loadeddata", decoded);
-    video.addEventListener("seeking", seeking);
-    draw(displayedTime);
-    animationFrame = requestAnimationFrame(loop);
-    return () => {
-      cancelAnimationFrame(animationFrame);
-      video.removeEventListener("timeupdate", decoded); video.removeEventListener("seeked", decoded);
-      video.removeEventListener("loadeddata", decoded); video.removeEventListener("seeking", seeking);
-    };
-  }, [calibration, frames, times, overlay, marker, videoRef]);
+    return synchronizeVideo(video, draw, setTime);
+  }, [src, calibration, frames, times, overlay, marker, videoRef]);
 
   function seek(value: number) {
     const video = videoRef.current;
@@ -81,8 +57,10 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
   }
   function step(direction: number) {
     const current = videoRef.current?.currentTime ?? 0;
-    const next = direction > 0 ? times.find((t) => t > current + 0.0001) : times.findLast((t) => t < current - 0.0001);
-    seek(next ?? current + direction / 60);
+    const next = times[Math.max(0, Math.min(times.length - 1, frameIndexAt(times, current) + direction))];
+    // Seek just inside the presentation interval to avoid browser rounding back
+    // to the preceding frame at an exact boundary.
+    seek(next === undefined ? current + direction / 60 : next + 0.0002);
   }
   async function toggle() {
     const video = videoRef.current;
@@ -94,7 +72,7 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
   return (
     <section className="overflow-hidden rounded-xl border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-950" aria-label="Dive video review">
       <div className="relative bg-black" style={{ aspectRatio: aspect }}>
-        <video ref={videoRef} src={src} className="absolute inset-0 h-full w-full" playsInline muted preload="auto"
+        <video ref={videoRef} src={src} className="pointer-events-none absolute inset-0 h-full w-full opacity-0" aria-hidden="true" playsInline muted preload="auto"
           onLoadedMetadata={(e) => {
             const video = e.currentTarget;
             setDuration(Number.isFinite(video.duration) ? video.duration : 0);

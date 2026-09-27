@@ -9,6 +9,7 @@ description = "Calibrated top-down pose tracking and kinematic analysis for 1 m 
 readme = "README.md"
 requires-python = ">=3.10,<3.15"
 dependencies = [
+  "av>=14,<18",
   "numpy>=1.26,<3",
   "opencv-python>=4.9,<5",
   "pandas>=2.1,<3",

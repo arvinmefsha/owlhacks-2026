@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
     return [{ source: "/api/:path*", destination: `${apiUrl}/:path*` }];
   },
   experimental: {
-    // Uploading a dive waits for analysis and Gemini feedback, which can exceed the 30 s default.
+    // Allow large local uploads; inference runs asynchronously after submission.
     proxyTimeout: 120_000,
     // Rewrites buffer the request body and truncate it at 10 MB by default, which cuts off dive videos.
     // Matches the API's own upload cap (MAX_UPLOAD_MB).
