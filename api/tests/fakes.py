@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from feedback.gemini import DiveFeedback, VisionNote, VisionReview, rule_based_feedback
+from feedback.gemini import DiveFeedback, VisionNote, VisionReview, rule_based_feedback, rule_based_tip
 
 
 class FakeDatabase:
@@ -80,10 +80,17 @@ class FakeCoach:
     def __init__(self):
         self.feedback_calls = 0
         self.keyframes: list[tuple[str, bytes, str]] = []
+        self.tip_calls: list[tuple[dict, dict, dict | None, int]] = []
 
     def feedback(self, analysis: dict, setup: dict) -> tuple[DiveFeedback, str]:
         self.feedback_calls += 1
         return rule_based_feedback(analysis), "rules"
+
+    def quick_tip(
+        self, analysis: dict, setup: dict, previous_analysis: dict | None = None, dive_number: int = 1
+    ) -> tuple[str, str]:
+        self.tip_calls.append((analysis, setup, previous_analysis, dive_number))
+        return rule_based_tip(analysis, previous_analysis, dive_number), "rules"
 
     def review_keyframes(self, analysis: dict, setup: dict, frames: list[tuple[str, bytes, str]]) -> VisionReview:
         self.keyframes = frames

@@ -46,6 +46,10 @@ class VisionReview(BaseModel):
     notes: list[VisionNote] = Field(min_length=1, max_length=5, description="Observations, in dive order.")
 
 
+class LiveTip(BaseModel):
+    tip: str = Field(description="One or two short spoken sentences, at most 35 words, with exactly one fix.")
+
+
 SYSTEM_INSTRUCTION = """You are an experienced springboard and platform diving coach reviewing one dive.
 You receive measurements from a pose-estimation system that watched the dive from the side, each already scored out of 10 against a coaching target, plus the faults it detected and a catalog of dryland workouts.
 
@@ -59,6 +63,17 @@ You receive measurements from a pose-estimation system that watched the dive fro
 VISION_PROMPT = """These three frames come from the same dive: takeoff, top of the flight, and entry, with the tracked skeleton drawn on.
 The measurements below were computed from the skeleton. Point out things you can see that they can't capture well, such as head position, hand and arm shape, how tight the body looks, twisting, and how clean the entry and splash look.
 Don't repeat the measured numbers, and say so if a frame is too unclear to judge."""
+
+LIVE_TIP_MAX_WORDS = 35
+LIVE_TIP_TIMEOUT_S = 12.0
+
+LIVE_TIP_INSTRUCTION = """You are a diving coach standing poolside. The diver just climbed out of the water and you give them one quick spoken pointer before the next dive.
+You receive the dive setup, scores out of 10 from a pose-estimation system, the top faults with their measurements and a suggested cue, any tracking warnings, and sometimes the same numbers for the diver's previous dive.
+
+- One or two short sentences, 35 words at most, in second person. It is read aloud, so no lists, markdown, symbols or emoji.
+- Open with a few words of encouragement about something that went well, then give exactly one concrete fix for the first (highest-impact) fault.
+- Compare with the previous dive only when the numbers clearly support it, for example "your entry was straighter than last time".
+- Never invent numbers or faults. With no faults, tell the diver what to keep doing."""
 
 CUES: dict[str, str] = {
     "takeoff_knees_bent": "Push through the board until the legs are straight.",
@@ -141,6 +156,62 @@ def rule_based_feedback(analysis: dict) -> DiveFeedback:
     )
 
 
+PHASE_PRAISE: dict[str, tuple[str, ...]] = {
+    "takeoff": ("Strong takeoff on that one.", "Great push off the board."),
+    "flight": ("Nice shape in the air.", "Good work in the air on that one."),
+    "entry": ("Nice entry on that one.", "Good line into the water."),
+}
+
+
+def _top_faults(analysis: dict, limit: int) -> list[dict]:
+    return sorted(analysis.get("faults") or [], key=lambda f: f.get("impact", 0), reverse=True)[:limit]
+
+
+def rule_based_tip(analysis: dict, previous_analysis: dict | None = None, dive_number: int = 1) -> str:
+    """A short spoken tip: praise, the change since the last dive if it moved, and one fix."""
+    scores = analysis["scores"]
+    overall = scores["overall"]
+    fix = next(iter(_top_faults(analysis, 1)), None)
+    phases = {p: s for p, s in scores.items() if p in PHASE_PRAISE and (fix is None or p != fix["phase"])}
+    best = max(phases, key=phases.get) if phases else None
+    if best is not None and phases[best] >= 7:
+        variants = PHASE_PRAISE[best]
+        parts = [variants[(dive_number - 1) % len(variants)]]
+    else:
+        parts = [f"Good effort, that one scored {overall:g} out of 10."]
+
+    previous = ((previous_analysis or {}).get("scores") or {}).get("overall")
+    if previous is not None:
+        change = round(overall - previous, 1)
+        if abs(change) >= 0.3:
+            parts.append(f"That's {'up' if change > 0 else 'down'} {abs(change):g} from your last dive.")
+
+    if fix is None:
+        parts.append("No faults flagged, so keep doing exactly that.")
+    else:
+        cue = CUES.get(fix["id"], f"Work on this: {fix['title'].lower()}.")
+        parts.append(f"Next time, {cue[0].lower()}{cue[1:]}")
+    return " ".join(parts)
+
+
+def _tip_numbers(analysis: dict) -> dict:
+    return {
+        "scores": analysis.get("scores"),
+        "top_faults": [
+            {**{k: f.get(k) for k in ("id", "title", "phase", "value", "unit", "target", "score", "severity")},
+             "cue": CUES.get(f["id"])}
+            for f in _top_faults(analysis, 3)
+        ],
+    }
+
+
+def _tip_context(analysis: dict, setup: dict, previous_analysis: dict | None, dive_number: int) -> dict:
+    payload = {"dive_number": dive_number, "dive": setup, **_tip_numbers(analysis), "warnings": analysis.get("warnings") or []}
+    if previous_analysis:
+        payload["previous_dive"] = _tip_numbers(previous_analysis)
+    return payload
+
+
 class GeminiCoach:
     def __init__(self, api_key: str | None, model: str, timeout_s: float = 45.0):
         self._client = genai.Client(api_key=api_key) if api_key else None
@@ -185,6 +256,34 @@ class GeminiCoach:
         known = set(ids)
         feedback.workouts = [w for w in feedback.workouts if w.id in known] or rule_based_feedback(analysis).workouts
         return feedback
+
+    def quick_tip(
+        self, analysis: dict, setup: dict, previous_analysis: dict | None = None, dive_number: int = 1
+    ) -> tuple[str, str]:
+        """A short spoken tip and its source ("gemini", or "rules" if Gemini is off or failed)."""
+        if self._client is not None:
+            try:
+                return self._ask_tip(analysis, setup, previous_analysis, dive_number), "gemini"
+            except Exception as exc:  # a live session never waits on or fails over a tip
+                log.warning("Gemini live tip failed (%s); using the rule-based tip", self.describe_error(exc))
+        return rule_based_tip(analysis, previous_analysis, dive_number), "rules"
+
+    def _ask_tip(self, analysis: dict, setup: dict, previous_analysis: dict | None, dive_number: int) -> str:
+        if self._client is None:
+            raise RuntimeError("Gemini is not configured.")
+        interaction = self._client.interactions.create(
+            model=self.model,
+            system_instruction=LIVE_TIP_INSTRUCTION,
+            input=json.dumps(_tip_context(analysis, setup, previous_analysis, dive_number)),
+            response_format={"type": "text", "mime_type": "application/json", "schema": LiveTip.model_json_schema()},
+            generation_config={"thinking_level": "low"},
+            store=False,
+            timeout=min(self.timeout_s, LIVE_TIP_TIMEOUT_S),
+        )
+        tip = " ".join(LiveTip.model_validate_json(interaction.output_text).tip.split())
+        if not tip or len(tip.split()) > LIVE_TIP_MAX_WORDS:
+            raise ValueError(f"the tip was empty or longer than {LIVE_TIP_MAX_WORDS} words")
+        return tip
 
     def review_keyframes(self, analysis: dict, setup: dict, frames: list[tuple[str, bytes, str]]) -> VisionReview:
         """Ask Gemini to look at keyframes given as (label, image bytes, mime type). Raises on failure."""

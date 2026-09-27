@@ -19,6 +19,9 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Uploa
 from fastapi.responses import FileResponse
 from feedback.catalog import load_catalog
 from feedback.gemini import GeminiCoach
+from feedback.speech import SpeechClient
+from live import router as live_router
+from live_pose import LivePoseDetector
 from models import AnalysisJobPayload, Readiness
 from pydantic import ValidationError
 
@@ -46,6 +49,8 @@ async def lifespan(app: FastAPI):
     gemini_key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else None
     app.state.coach = GeminiCoach(gemini_key, settings.gemini_model)
     app.state.analysis_jobs = AnalysisJobManager(db, app.state.coach, settings)
+    app.state.live_pose = LivePoseDetector(settings)  # loads its model on the first live frame
+    app.state.speech = SpeechClient(settings)
     log.info("Ready. Gemini model: %s", settings.gemini_model)
     try:
         yield
@@ -55,6 +60,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Dive Form Analyzer API", lifespan=lifespan)
+app.include_router(live_router)
 
 
 def _db(request: Request) -> Any:

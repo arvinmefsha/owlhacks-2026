@@ -8,7 +8,7 @@ Record a dive or upload existing footage, then review YOLO-based pose tracking, 
 
 ## Processing flows
 
-- **Practice camera:** the browser records the dive, then sends the completed clip to the local `fast` YOLO profile. Feedback appears after analysis; inference does not compete with camera capture.
+- **Live session:** a hands-free, multi-dive session (see below). Each detected dive is cut into its own clip and sent to the local `fast` YOLO profile.
 - **Uploaded footage:** the browser sends the original clip to the local `quality` profile, which uses a larger inference size for more precise review.
 
 Both profiles use a person detector followed by YOLO11 pose on a padded diver crop. Detection runs periodically, with immediate recovery when the crop fails; pose inference still covers each decodable source frame while a diver crop is available. Offline centered refinement preserves strong observations and fills short, bracketed occlusions. The review clips submerged limb segments at the water surface.
@@ -46,6 +46,17 @@ Film side-on with a static camera and keep the board, complete flight, and water
 The interface is configured for a 1 m springboard and uses one anonymous local history. It does not ask for an athlete name or height.
 
 The API queues inference and reports its stage, frame count, and progress. A completed job opens the normal review page, including slow motion, frame stepping, timeline scrubbing, skeleton confidence, and dive metrics.
+
+### Live session
+
+On `/record`, **Live session** runs a whole practice hands-free:
+
+1. Start the session and set the laptop where it sees the board and the water. After a 2 s reminder, tap the board tip and the water surface on the live picture, then walk out of view (5 s countdown).
+2. The browser sends about five frames a second to `POST /api/live/pose`, where a small separate YOLO pose model (`LIVE_POSE_MODEL`, default `yolo11n-pose.pt`) finds the diver's ankles. A dive starts recording once the feet stay at board height for 0.3 s, and ends 1 s after the feet go below the water line (or after the diver disappears having left the board). No water entry within 20 s discards the attempt. All thresholds live in `TRIGGER_CONFIG` in `web/lib/dive-trigger.ts`.
+3. Each clip becomes "Dive #N" and goes through the normal analysis job. When it finishes, the screen splits: the skeleton replay on black on one side, and a short coach tip on the other (`POST /api/live/tip`, Gemini when `GEMINI_API_KEY` is set, otherwise rule-based) read aloud (`POST /api/live/speech`, ElevenLabs when `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are set, otherwise the browser's built-in voice).
+4. **Stop session** shows every dive on a timeline with its score and a link to the full analysis.
+
+Live detection needs the full YOLO stack (`ultralytics` and `torch`, installed with `diving_cv`) in the API environment; without it the session stops with a clear message. The live model runs alongside the analysis worker, so both share the laptop's CPU or GPU.
 
 ## Tracking behavior
 

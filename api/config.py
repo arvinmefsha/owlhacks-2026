@@ -6,7 +6,7 @@ Secrets are SecretStr so they print as '**********' if a settings object is ever
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr, ValidationError, field_validator
+from pydantic import SecretStr, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 API_DIR = Path(__file__).resolve().parent
@@ -26,8 +26,13 @@ class Settings(BaseSettings):
     yolo_detector_model: str = "yolo11n.pt"
     yolo_pose_model: str = "yolo11m-pose.pt"
     yolo_device: str | None = None
+    elevenlabs_api_key: SecretStr | None = None
+    elevenlabs_voice_id: str | None = None
+    elevenlabs_model: str = "eleven_flash_v2_5"
+    live_pose_model: str = "yolo11n-pose.pt"
+    live_pose_size: int = 480
 
-    @field_validator("gemini_api_key", "database_url")
+    @field_validator("gemini_api_key", "database_url", "elevenlabs_api_key")
     @classmethod
     def _not_placeholder(cls, value: SecretStr | None) -> SecretStr | None:
         if value is None:
@@ -37,10 +42,17 @@ class Settings(BaseSettings):
             raise ValueError("missing or still the placeholder from .env.example")
         return SecretStr(secret)
 
-    @field_validator("presage_api_key", "yolo_device", mode="before")
+    @field_validator("presage_api_key", "yolo_device", "elevenlabs_api_key", "elevenlabs_voice_id", mode="before")
     @classmethod
     def _blank_is_none(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("elevenlabs_model", "live_pose_model", "live_pose_size", mode="before")
+    @classmethod
+    def _blank_is_default(cls, value: object, info: ValidationInfo) -> object:
+        if isinstance(value, str) and not value.strip():
+            return cls.model_fields[info.field_name].default
+        return value
 
 
 @lru_cache

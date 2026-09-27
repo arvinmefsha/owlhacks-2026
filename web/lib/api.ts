@@ -107,6 +107,18 @@ export type Progress = {
   daily: { bucket: string; metric: string; avg_value: number; avg_score: number | null; dives: number }[];
 };
 
+/** POST /live/pose: the single most confident person, normalized to the frame. */
+export type LivePose = { person: boolean; keypoints: [number, number, number][] | null; box: [number, number, number, number] | null; inference_ms: number };
+export type LiveTip = { tip: string; source: "gemini" | "rules" };
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function errorMessage(response: Response): Promise<string> {
   try {
     const body = await response.json();
@@ -118,7 +130,7 @@ async function errorMessage(response: Response): Promise<string> {
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, init);
-  if (!response.ok) throw new Error(await errorMessage(response));
+  if (!response.ok) throw new ApiError(await errorMessage(response), response.status);
   return (response.status === 204 ? undefined : await response.json()) as T;
 }
 
