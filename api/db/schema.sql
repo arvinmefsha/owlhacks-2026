@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS dives (
 
 CREATE INDEX IF NOT EXISTS dives_diver_idx ON dives (diver_id, recorded_at DESC);
 
--- One row per video frame: 33 landmarks x (x, y, z, visibility) flattened, NULL when no pose was found.
+-- One row per video frame: 17 COCO landmarks x (x, y, z, confidence), NULL when unavailable.
 CREATE TABLE IF NOT EXISTS pose_frames (
     dive_id UUID NOT NULL REFERENCES dives (id) ON DELETE CASCADE,
     ts TIMESTAMPTZ NOT NULL,

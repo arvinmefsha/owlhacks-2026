@@ -8,3 +8,4 @@ scipy>=1.14
 psycopg[binary]>=3.2
 psycopg-pool>=3.2
 google-genai>=1.50
+-e ../diving_cv

@@ -20,7 +20,7 @@
   {
     "id": "calf_raises",
     "name": "Single-leg calf raises",
-    "targets": ["low_height", "flexed_feet"],
+    "targets": ["low_height"],
     "sets": 3,
     "reps": "12 each leg",
     "equipment": "Step",
@@ -178,24 +178,6 @@
     "reps": "20 s hold",
     "equipment": "Soft ball or rolled towel",
     "description": "Lying on your back with straight legs raised, squeeze a ball between the ankles as hard as you can while keeping the toes pointed."
-  },
-  {
-    "id": "band_toe_point",
-    "name": "Resistance-band toe point",
-    "targets": ["flexed_feet"],
-    "sets": 3,
-    "reps": "15 each foot",
-    "equipment": "Resistance band",
-    "description": "Sitting with the leg straight, loop a band around the ball of the foot and point the toes fully against it, holding the end position for a second."
-  },
-  {
-    "id": "kneeling_foot_stretch",
-    "name": "Kneeling foot stretch",
-    "targets": ["flexed_feet"],
-    "sets": 3,
-    "reps": "30 s hold",
-    "equipment": "Mat",
-    "description": "Kneel and sit back on the heels with the tops of the feet flat on the mat, then gently lift the knees to deepen the stretch across the top of the ankle."
   },
   {
     "id": "dryland_somersaults",

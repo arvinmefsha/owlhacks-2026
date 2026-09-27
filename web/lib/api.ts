@@ -1,5 +1,3 @@
-export type Diver = { id: string; name: string; height_cm: number | null };
-
 export type DiveSetup = {
   position: "straight" | "pike" | "tuck" | "free";
   direction: "forward" | "back" | "reverse" | "inward";
@@ -9,10 +7,26 @@ export type DiveSetup = {
 };
 
 export type Point = { x: number; y: number };
-export type Calibration = { board_tip: Point | null; water_y: number | null };
+export type Calibration = {
+  board_tip: Point | null;
+  water_y: number | null;
+  roi?: { x: number; y: number; width: number; height: number } | null;
+};
 
-/** One video frame: 33 landmarks of [x, y, z, visibility] in normalized image units, or null. */
+/** One video frame: 17 COCO landmarks of [x, y, z, confidence], or null. */
 export type PoseFrame = { t: number; lm: number[][] | null };
+
+export type AnalysisJob = {
+  id: string;
+  status: "queued" | "running" | "complete" | "failed" | "cancelled";
+  stage: string;
+  progress: number;
+  frames_processed: number;
+  total_frames: number | null;
+  dive_id: string | null;
+  error: string | null;
+  profile: "fast" | "quality";
+};
 
 export type Phase = "takeoff" | "flight" | "entry";
 
@@ -52,7 +66,6 @@ export type VisionReview = { summary: string; notes: { phase: Phase; note: strin
 export type Dive = {
   id: string;
   diver_id: string;
-  diver_name: string;
   recorded_at: string;
   setup: DiveSetup;
   calibration: Calibration;
@@ -67,7 +80,7 @@ export type Dive = {
   vision_review: VisionReview | null;
   readiness_hr: number | null;
   readiness_br: number | null;
-  /** Landmarks are flattened: 132 numbers per frame (33 x [x, y, z, visibility]). */
+  /** Landmarks are flattened: 68 numbers per frame (17 x [x, y, z, confidence]). */
   frames: { t: number[]; lm: (number[] | null)[] };
 };
 

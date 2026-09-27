@@ -1,4 +1,4 @@
-"""Synthetic MediaPipe-style frames for a side-on dive, with known ground truth.
+"""Synthetic COCO-17 frames for a side-on dive, with known ground truth.
 
 The figure faces +x (right) and rotates forward (clockwise on screen). World units are metres
 with y up and the water surface at y = 0; the board tip is at x = 0. As in a real dive, the
@@ -8,7 +8,6 @@ centre of mass (not the hips) follows the ballistic path once airborne.
 from dataclasses import dataclass
 
 import numpy as np
-
 from analysis.landmarks import center_of_mass
 
 G = 9.81
@@ -91,12 +90,12 @@ def _joints(hip: np.ndarray, pose: Pose, h: float) -> dict[str, np.ndarray]:
 def _com_offset(pose: Pose, h: float) -> np.ndarray:
     """Centre of mass relative to the hip for this pose."""
     j = _joints(np.zeros(2), pose, h)
-    return center_of_mass(j["shoulder"], j["hip"], j["knee"], j["ankle"], j["wrist"], j["foot"])
+    return center_of_mass(j["shoulder"], j["hip"], j["knee"], j["ankle"], j["wrist"])
 
 
 def _landmarks(j: dict[str, np.ndarray], spec: DiveSpec, rng) -> list[list[float]]:
     side = np.array([spec.leg_gap_m / 2, 0.0])
-    lm = [[0.0, 0.0, 0.0, 0.0] for _ in range(33)]
+    lm = [[0.0, 0.0, 0.0, 0.0] for _ in range(17)]
 
     def put(idx: int, p: np.ndarray, vis: float) -> None:
         x, y = to_normalized(p + rng.normal(0, spec.noise_px / PX_PER_M, 2))
@@ -104,8 +103,12 @@ def _landmarks(j: dict[str, np.ndarray], spec: DiveSpec, rng) -> list[list[float
 
     put(0, j["nose"], 0.99)
     for near, far, name, offset in [
-        (11, 12, "shoulder", 0.0), (13, 14, "elbow", 0.0), (15, 16, "wrist", 0.0), (23, 24, "hip", 0.0),
-        (25, 26, "knee", 0.5), (27, 28, "ankle", 1.0), (29, 30, "heel", 1.0), (31, 32, "foot", 1.0),
+        (5, 6, "shoulder", 0.0),
+        (7, 8, "elbow", 0.0),
+        (9, 10, "wrist", 0.0),
+        (11, 12, "hip", 0.0),
+        (13, 14, "knee", 0.5),
+        (15, 16, "ankle", 1.0),
     ]:
         put(near, j[name] + side * offset, 0.95)
         put(far, j[name] - side * offset, 0.6)

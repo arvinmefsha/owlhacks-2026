@@ -4,7 +4,13 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from analysis.geometry import angle_at, direction_deg, distance, nanpercentile, unwrap_deg
+from analysis.geometry import (
+    angle_at,
+    direction_deg,
+    distance,
+    nanpercentile,
+    unwrap_deg,
+)
 from analysis.landmarks import NUM_LANDMARKS, Body
 from analysis.metrics import compute_metrics
 from analysis.phases import find_phases
@@ -26,7 +32,7 @@ class AnalysisError(ValueError):
 
 
 def _to_arrays(frames: Sequence[dict], width: int, height: int):
-    """Sorted times, (N, 33, 2) pixel positions and (N, 33) visibility, NaN where missing."""
+    """Sorted times, (N, 17, 2) pixel positions and confidence, NaN where missing."""
     frames = sorted(frames, key=lambda f: f["t"])
     t = np.array([f["t"] for f in frames], dtype=float)
     keep = np.concatenate([[True], np.diff(t) > 1e-6])
@@ -39,11 +45,6 @@ def _to_arrays(frames: Sequence[dict], width: int, height: int):
             raw[i] = np.asarray(f["lm"], dtype=float)[:, :4]
 
     vis = raw[..., 3]
-    tracked = np.isfinite(vis).any(axis=1)
-    # Some MediaPipe builds report zero visibility for every point; treat that as unknown.
-    if tracked.any() and np.nanmax(vis[tracked]) <= 0.01:
-        vis = np.where(np.isfinite(vis), 1.0, np.nan)
-
     xy = raw[..., :2] * np.array([width, height], dtype=float)
     xy[vis < MIN_VISIBILITY] = np.nan
     return t, xy, vis
@@ -69,6 +70,24 @@ def _estimate_scale(body: Body, height_cm: float | None) -> tuple[float, dict]:
         "px_per_m": round(px_per_m, 2),
         "height_cm": used_cm,
         "source": "diver_height" if height_cm else "default_height",
+    }
+
+
+def _calibrated_scale(
+    calibration: dict, height: int, board_height_m: float
+) -> tuple[float, dict] | None:
+    board = calibration.get("board_tip")
+    water_y = calibration.get("water_y")
+    if board is None or water_y is None:
+        return None
+    pixel_distance = abs(float(water_y) - float(board["y"])) * height
+    if pixel_distance < 10:
+        raise AnalysisError("Board tip and water line must be at least 10 pixels apart.")
+    px_per_m = pixel_distance / board_height_m
+    return px_per_m, {
+        "px_per_m": round(px_per_m, 2),
+        "reference_height_m": board_height_m,
+        "source": "board_to_water",
     }
 
 
@@ -98,7 +117,7 @@ def analyze_dive(
 ) -> dict:
     """Analyse one dive.
 
-    frames: [{"t": seconds, "lm": 33 x [x, y, z, visibility] in normalized image units, or None}]
+    frames: [{"t": seconds, "lm": 17 x [x, y, z, confidence] in normalized image units, or None}]
     setup: {"position", "direction", "somersaults", "apparatus", "board_height_m"}
     calibration: {"board_tip": {"x", "y"} or None, "water_y": float or None}, normalized units
     """
@@ -121,11 +140,12 @@ def analyze_dive(
     if np.isfinite(body.com[:, 1]).sum() < MIN_TRACKED_FRAMES:
         raise AnalysisError("The diver's trunk and legs weren't visible for long enough to follow the dive.")
 
-    px_per_m, scale = _estimate_scale(body, height_cm)
+    calibrated = _calibrated_scale(calibration, height, float(setup["board_height_m"]))
+    px_per_m, scale = calibrated or _estimate_scale(body, height_cm)
     warnings: list[str] = []
     if scale["source"] == "default_height":
         warnings.append(
-            "No diver height was set, so distances assume 1.70 m. Set the height for accurate jump height."
+            "No board-to-water scale was available, so distances use an approximate body scale."
         )
 
     board_tip = calibration.get("board_tip")

@@ -17,13 +17,13 @@ class FakeDatabase:
     def ping(self) -> bool:
         return True
 
-    def create_diver(self, name: str, height_cm: float | None) -> dict:
-        diver = {"id": uuid4(), "name": name, "height_cm": height_cm, "created_at": datetime.now(UTC)}
-        self.divers[diver["id"]] = diver
-        return diver
-
-    def list_divers(self) -> list[dict]:
-        return list(self.divers.values())
+    def get_or_create_default_diver(self) -> dict:
+        if self.divers:
+            diver = next(iter(self.divers.values()))
+        else:
+            diver = {"id": uuid4(), "height_cm": None, "created_at": datetime.now(UTC)}
+            self.divers[diver["id"]] = diver
+        return {"id": diver["id"], "height_cm": diver["height_cm"]}
 
     def get_diver(self, diver_id: UUID) -> dict | None:
         return self.divers.get(diver_id)
@@ -45,15 +45,12 @@ class FakeDatabase:
         dive = self.dives.get(dive_id)
         if dive is None:
             return None
-        diver = self.divers[dive["diver_id"]]
         frames = [
             {"t": f["t"], "landmarks": None if f["lm"] is None else [v for point in f["lm"] for v in point]}
             for f in self.frames[dive_id]
         ]
         return {
             **dive,
-            "diver_name": diver["name"],
-            "height_cm": diver["height_cm"],
             "readiness_hr": None,
             "readiness_br": None,
             "frames": frames,

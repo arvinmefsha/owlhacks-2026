@@ -73,16 +73,18 @@ class Database:
 
     # Divers and sessions
 
-    def create_diver(self, name: str, height_cm: float | None) -> dict:
+    def get_or_create_default_diver(self) -> dict:
+        """Return the app's single internal profile, creating it on first use."""
         with self.pool.connection() as conn:
-            return conn.execute(
-                "INSERT INTO divers (name, height_cm) VALUES (%s, %s) RETURNING id, name, height_cm, created_at",
-                (name, height_cm),
+            conn.execute("LOCK TABLE divers IN SHARE ROW EXCLUSIVE MODE")
+            row = conn.execute(
+                "SELECT id, height_cm FROM divers ORDER BY created_at LIMIT 1"
             ).fetchone()
-
-    def list_divers(self) -> list[dict]:
-        with self.pool.connection() as conn:
-            return conn.execute("SELECT id, name, height_cm, created_at FROM divers ORDER BY created_at").fetchall()
+            if row is not None:
+                return row
+            return conn.execute(
+                "INSERT INTO divers (name) VALUES ('Diver') RETURNING id, height_cm"
+            ).fetchone()
 
     def get_diver(self, diver_id: UUID) -> dict | None:
         with self.pool.connection() as conn:
@@ -182,12 +184,11 @@ class Database:
         with self.pool.connection() as conn:
             dive = conn.execute(
                 """
-                SELECT d.id, d.diver_id, v.name AS diver_name, v.height_cm, d.recorded_at, d.setup, d.calibration,
+                SELECT d.id, d.diver_id, d.recorded_at, d.setup, d.calibration,
                        d.source, d.video_path, d.video_mime, d.video_width, d.video_height, d.fps,
                        d.overall_score, d.scores, d.analysis, d.feedback, d.feedback_source, d.vision_review,
                        s.readiness_hr, s.readiness_br
                 FROM dives d
-                JOIN divers v ON v.id = d.diver_id
                 LEFT JOIN sessions s ON s.id = d.session_id
                 WHERE d.id = %s
                 """,
