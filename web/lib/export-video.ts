@@ -3,12 +3,12 @@ import { drawCalibration, drawPose } from "@/lib/pose-drawing";
 
 export type ExportMode = "overlay" | "black";
 
-const MIME_TYPES = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
+const MIME_TYPES = ["video/mp4;codecs=avc1.42E01E", "video/mp4;codecs=h264", "video/mp4"];
 
 function recordingType(): { mimeType: string; extension: string } {
   const mimeType = MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
-  if (!mimeType) throw new Error("This browser cannot record a video download.");
-  return { mimeType, extension: mimeType.startsWith("video/mp4") ? "mp4" : "webm" };
+  if (!mimeType) throw new Error("This browser cannot record an MP4 video download.");
+  return { mimeType, extension: "mp4" };
 }
 
 function frameGap(times: number[], index: number): number {
