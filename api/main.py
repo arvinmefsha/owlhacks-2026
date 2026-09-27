@@ -3,7 +3,7 @@
 The Next.js app proxies /api/* to this server, so browsers never call it directly and the
 Gemini and database credentials stay on this machine. Run with: uvicorn main:app --reload
 """
-
+Print("Hello, world!")
 import logging
 import shutil
 from contextlib import asynccontextmanager
