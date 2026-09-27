@@ -41,8 +41,12 @@ export function frameIndexAt(times: number[], time: number): number {
     if (times[mid] <= time + 0.00001) lo = mid + 1;
     else hi = mid;
   }
-  const index = lo - 1;
-  return index >= 0 && time - times[index] <= 0.15 ? index : -1;
+  const after = lo;
+  const before = lo - 1;
+  if (before < 0) return after < times.length && times[after] - time <= 0.15 ? after : -1;
+  if (after >= times.length) return time - times[before] <= 0.15 ? before : -1;
+  const nearest = time - times[before] <= times[after] - time ? before : after;
+  return Math.abs(time - times[nearest]) <= 0.15 ? nearest : -1;
 }
 
 export function drawPose(ctx: CanvasRenderingContext2D, pose: number[][] | null, waterY: number | null = null) {

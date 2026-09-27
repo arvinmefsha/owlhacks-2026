@@ -28,7 +28,8 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
   useEffect(() => {
     const video = videoRef.current, canvas = canvasRef.current;
     if (!video || !canvas) return;
-    let callback = 0;
+    let animationFrame = 0;
+    let lastUiTime = -1;
     let displayedTime = video.currentTime;
     const draw = (timestamp: number) => {
       if (!video.videoWidth) return;
@@ -43,24 +44,29 @@ export function UploadVideoPlayer({ src, frames = EMPTY_FRAMES, calibration, vid
         ctx.beginPath(); ctx.arc(marker.x * canvas.width, marker.y * canvas.height, canvas.width / 60, 0, Math.PI * 2); ctx.stroke();
       }
     };
-    const loop: VideoFrameRequestCallback = (_now, metadata) => {
-      displayedTime = metadata.mediaTime;
-      draw(displayedTime); setTime(displayedTime);
-      callback = video.requestVideoFrameCallback(loop);
+    const loop = () => {
+      // Draw immediately before the browser paints. RVFC runs after a decoded
+      // frame is presented, which can make a canvas overlay visibly trail it.
+      displayedTime = video.currentTime;
+      draw(displayedTime);
+      if (Math.abs(displayedTime - lastUiTime) >= 1 / 15) {
+        lastUiTime = displayedTime;
+        setTime(displayedTime);
+      }
+      animationFrame = requestAnimationFrame(loop);
     };
     const decoded = () => {
-      // RVFC uses the actual presentation timestamp. A seeked fallback covers paused
-      // frames and browsers without RVFC; never draw a requested time while seeking.
+      // Cover paused frames and browsers that do not repaint immediately after a seek.
       draw(video.currentTime); setTime(video.currentTime);
     };
     const seeking = () => canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
-    if (video.requestVideoFrameCallback) callback = video.requestVideoFrameCallback(loop);
-    else video.addEventListener("timeupdate", decoded);
+    video.addEventListener("timeupdate", decoded);
     video.addEventListener("seeked", decoded); video.addEventListener("loadeddata", decoded);
     video.addEventListener("seeking", seeking);
     draw(displayedTime);
+    animationFrame = requestAnimationFrame(loop);
     return () => {
-      if (callback) video.cancelVideoFrameCallback(callback);
+      cancelAnimationFrame(animationFrame);
       video.removeEventListener("timeupdate", decoded); video.removeEventListener("seeked", decoded);
       video.removeEventListener("loadeddata", decoded); video.removeEventListener("seeking", seeking);
     };

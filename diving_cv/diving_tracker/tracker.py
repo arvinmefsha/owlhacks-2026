@@ -164,12 +164,21 @@ class DivingTracker:
         tracks: list[FrameTrack] = []
         filtered_reference: np.ndarray | None = None
         index = 0
+        previous_timestamp = -1.0
         try:
             while True:
                 ok, frame = capture.read()
                 if not ok:
                     break
-                timestamp = index / fps
+                # Use the container/decoder presentation timestamp when it is
+                # available. Index/fps is only an approximation and drifts on
+                # VFR or timestamped MOV/WebM files, which makes review overlays
+                # appear several frames behind the video.
+                decoded_timestamp = float(capture.get(cv2.CAP_PROP_POS_MSEC)) / 1000.0
+                timestamp = decoded_timestamp if np.isfinite(decoded_timestamp) and decoded_timestamp >= 0 else index / fps
+                if timestamp <= previous_timestamp:
+                    timestamp = max(index / fps, previous_timestamp + 1.0 / fps)
+                previous_timestamp = timestamp
                 board_tip = board_tracker.step(frame)
                 predicted_box = box_tracker.predict(timestamp)
                 detected_box, detection_confidence = backend.detect(
